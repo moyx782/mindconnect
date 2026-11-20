@@ -1,0 +1,15 @@
+import {build} from 'esbuild';
+import Ajv from 'ajv';
+import standaloneCode from 'ajv/dist/standalone/index.js';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import schema from '../src/board.schema.json' with {type:'json'};
+const ajv=new Ajv({allErrors:true,code:{source:true,esm:true}});
+const validator=ajv.compile(schema);
+const compiled=path.resolve('ui/validator.generated.mjs');
+await fs.writeFile(compiled,standaloneCode(ajv,validator));
+await build({entryPoints:['ui/browser-entry.mjs'],outfile:'ui/browser.js',bundle:true,minify:true,platform:'browser',format:'iife',target:'es2022',plugins:[{name:'precompiled-schema',setup(b){b.onResolve({filter:/^\.\/validator\.mjs$/},()=>({path:compiled}));}}]});
+let html=await fs.readFile('ui/index.html','utf8');
+html=html.replace('href="utilities.css"','href="ui/utilities.css"').replace('href="style.css"','href="ui/style.css"').replace('src="browser.js"','src="ui/browser.js"').replace('src="app.js"','src="ui/app.js"');
+await fs.writeFile('index.html',html);await fs.writeFile('.nojekyll','');
+console.log('Built offline GitHub Pages app and shared validator');

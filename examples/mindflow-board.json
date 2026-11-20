@@ -1,0 +1,129 @@
+{
+  "format": "mindflow",
+  "schemaVersion": 1,
+  "boardId": "board_original_example",
+  "revision": 0,
+  "updatedAt": "2026-11-20T14:25:24.520Z",
+  "title": "新产品灵感发散 · AI 语音笔记",
+  "tokens": [
+    {
+      "id": "tk_root",
+      "text": "随时随地语音捕捉灵感",
+      "x": -70,
+      "y": -30,
+      "color": "yellow"
+    },
+    {
+      "id": "tk_1",
+      "text": "打字太慢，想法转瞬即逝",
+      "x": -340,
+      "y": -100,
+      "color": "purple"
+    },
+    {
+      "id": "tk_2",
+      "text": "通勤/散步时双手被占用",
+      "x": -340,
+      "y": 10,
+      "color": "purple"
+    },
+    {
+      "id": "tk_3",
+      "text": "锁屏一键录音 Widget",
+      "x": 170,
+      "y": -120,
+      "color": "blue"
+    },
+    {
+      "id": "tk_4",
+      "text": "自动提炼关键词 Token",
+      "x": 170,
+      "y": -20,
+      "color": "green"
+    },
+    {
+      "id": "tk_5",
+      "text": "自动归类到主题白板",
+      "x": 170,
+      "y": 80,
+      "color": "green"
+    },
+    {
+      "id": "tk_6",
+      "text": "嘈杂环境语音识别准确率？",
+      "x": -70,
+      "y": 130,
+      "color": "red"
+    }
+  ],
+  "edges": [
+    {
+      "id": "ed_1",
+      "source": "tk_1",
+      "target": "tk_root",
+      "label": "催生需求"
+    },
+    {
+      "id": "ed_2",
+      "source": "tk_2",
+      "target": "tk_root",
+      "label": "场景"
+    },
+    {
+      "id": "ed_3",
+      "source": "tk_root",
+      "target": "tk_3",
+      "label": "入口"
+    },
+    {
+      "id": "ed_4",
+      "source": "tk_root",
+      "target": "tk_4",
+      "label": "AI 处理"
+    },
+    {
+      "id": "ed_5",
+      "source": "tk_4",
+      "target": "tk_5",
+      "label": "结构化"
+    },
+    {
+      "id": "ed_6",
+      "source": "tk_root",
+      "target": "tk_6",
+      "label": "风险点"
+    }
+  ],
+  "clusters": [
+    {
+      "id": "cl_1",
+      "title": "核心痛点洞察",
+      "x": -380,
+      "y": -170,
+      "width": 270,
+      "height": 290,
+      "color": "purple"
+    },
+    {
+      "id": "cl_2",
+      "title": "MVP 核心功能",
+      "x": 130,
+      "y": -190,
+      "width": 320,
+      "height": 360,
+      "color": "blue"
+    }
+  ],
+  "drawings": [],
+  "viewport": {
+    "x": 650,
+    "y": 420,
+    "scale": 1
+  },
+  "selection": {
+    "tokens": [],
+    "edges": [],
+    "clusters": [],
+    "drawings": []
+  }
+}
