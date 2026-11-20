@@ -1,0 +1,2498 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>MindFlow · 空间灵感白板</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', '"Noto Sans SC"', 'system-ui', 'sans-serif'],
+          },
+          boxShadow: {
+            'card': '0 2px 8px -2px rgba(15, 23, 42, 0.08), 0 1px 3px -1px rgba(15, 23, 42, 0.04)',
+            'card-hover': '0 8px 20px -4px rgba(15, 23, 42, 0.12), 0 4px 8px -2px rgba(15, 23, 42, 0.06)',
+            'card-selected': '0 0 0 2px #3b82f6, 0 10px 24px -4px rgba(59, 130, 246, 0.22)',
+            'float': '0 10px 30px -5px rgba(15, 23, 42, 0.14), 0 4px 10px -3px rgba(15, 23, 42, 0.06)',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: 'Inter', 'Noto Sans SC', system-ui, sans-serif;
+    }
+    input, textarea {
+      user-select: text;
+      -webkit-user-select: text;
+    }
+
+    /* 动态点阵背景 */
+    #canvas-viewport {
+      background-color: #f8f8f7;
+      background-image: radial-gradient(#d6d3d1 1.15px, transparent 1.15px);
+      background-size: 24px 24px;
+      touch-action: none;
+    }
+    .dark #canvas-viewport {
+      background-color: #141416;
+      background-image: radial-gradient(#2e2e34 1.15px, transparent 1.15px);
+    }
+
+    /* 空间变换层 */
+    #world-layer {
+      transform-origin: 0 0;
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 0;
+      height: 0;
+      will-change: transform;
+    }
+
+    /* 词条卡片 Token 样式与语义配色 */
+    .token-node {
+      position: absolute;
+      min-width: 96px;
+      max-width: 280px;
+      border-radius: 14px;
+      transition: box-shadow 0.15s ease, transform 0.08s ease, border-color 0.15s ease;
+      cursor: grab;
+    }
+    .token-node:active {
+      cursor: grabbing;
+    }
+
+    /* 配色主题 */
+    .theme-neutral {
+      background-color: #ffffff;
+      border: 1.5px solid #e7e5e4;
+      color: #1c1917;
+    }
+    .dark .theme-neutral {
+      background-color: #202024;
+      border: 1.5px solid #34343b;
+      color: #f4f4f5;
+    }
+
+    .theme-yellow {
+      background-color: #fef9c3;
+      border: 1.5px solid #fde047;
+      color: #713f12;
+    }
+    .dark .theme-yellow {
+      background-color: #362f12;
+      border: 1.5px solid #715e18;
+      color: #fef08a;
+    }
+
+    .theme-blue {
+      background-color: #e0f2fe;
+      border: 1.5px solid #7dd3fc;
+      color: #0c4a6e;
+    }
+    .dark .theme-blue {
+      background-color: #122b3d;
+      border: 1.5px solid #1e5378;
+      color: #bae6fd;
+    }
+
+    .theme-green {
+      background-color: #dcfce7;
+      border: 1.5px solid #86efac;
+      color: #14532d;
+    }
+    .dark .theme-green {
+      background-color: #123322;
+      border: 1.5px solid #1e633e;
+      color: #bbf7d0;
+    }
+
+    .theme-red {
+      background-color: #fee2e2;
+      border: 1.5px solid #fca5a5;
+      color: #7f1d1d;
+    }
+    .dark .theme-red {
+      background-color: #381619;
+      border: 1.5px solid #73262c;
+      color: #fecaca;
+    }
+
+    .theme-purple {
+      background-color: #f3e8ff;
+      border: 1.5px solid #d8b4fe;
+      color: #581c87;
+    }
+    .dark .theme-purple {
+      background-color: #2b183d;
+      border: 1.5px solid #582d82;
+      color: #e9d5ff;
+    }
+
+    /* 选中状态高亮 */
+    .token-node.selected {
+      box-shadow: 0 0 0 2.5px #3b82f6, 0 10px 24px -4px rgba(59, 130, 246, 0.25) !important;
+      z-index: 30;
+    }
+
+    /* 悬停显示连接锚点与发散加号 */
+    .token-node .node-handle,
+    .token-node .quick-branch-btn {
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s ease, transform 0.15s ease;
+    }
+    .token-node:hover .node-handle,
+    .token-node:hover .quick-branch-btn,
+    .token-node.selected .node-handle,
+    .token-node.selected .quick-branch-btn {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    /* 连线交互 */
+    .edge-path-hit {
+      fill: none;
+      stroke: transparent;
+      stroke-width: 16px;
+      cursor: pointer;
+      pointer-events: stroke;
+    }
+    .edge-path-visible {
+      fill: none;
+      stroke: #a8a29e;
+      stroke-width: 2px;
+      transition: stroke 0.15s ease, stroke-width 0.15s ease;
+      pointer-events: none;
+    }
+    .dark .edge-path-visible {
+      stroke: #52525b;
+    }
+    .edge-group:hover .edge-path-visible {
+      stroke: #3b82f6;
+      stroke-width: 2.5px;
+    }
+    .edge-group.selected .edge-path-visible {
+      stroke: #3b82f6;
+      stroke-width: 3px;
+    }
+
+    /* 手绘笔迹与图形层交互 */
+    .drawing-hit {
+      fill: none;
+      stroke: transparent;
+      stroke-width: 16px;
+      cursor: grab;
+      pointer-events: stroke;
+    }
+    .drawing-shape-fill {
+      cursor: grab;
+      pointer-events: all;
+    }
+    .drawing-group.selected .drawing-outline {
+      filter: drop-shadow(0 0 4px rgba(59, 130, 246, 0.7));
+    }
+
+    /* 群组容器 Cluster */
+    .cluster-box {
+      position: absolute;
+      border-radius: 20px;
+      border: 1.5px dashed rgba(120, 113, 108, 0.38);
+      background-color: rgba(231, 229, 228, 0.35);
+      backdrop-filter: blur(2px);
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .dark .cluster-box {
+      border-color: rgba(161, 161, 170, 0.28);
+      background-color: rgba(39, 39, 42, 0.42);
+    }
+    .cluster-box.selected {
+      border: 2px solid #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+    }
+
+    /* 绘图模式下禁用下层元素误触 */
+    .drawing-mode-active .token-node,
+    .drawing-mode-active .cluster-box,
+    .drawing-mode-active .edge-path-hit,
+    .drawing-mode-active .drawing-hit,
+    .drawing-mode-active .drawing-shape-fill {
+      pointer-events: none !important;
+    }
+
+    /* 平滑弹出动画 */
+    @keyframes popIn {
+      0% { opacity: 0; transform: scale(0.92) translateY(4px); }
+      100% { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    .animate-pop {
+      animation: popIn 0.14s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(156, 163, 175, 0.4);
+      border-radius: 999px;
+    }
+  </style>
+</head>
+<body class="text-stone-800 dark:text-zinc-100 antialiased">
+
+  <!-- 1. 主无限画布视口 -->
+  <div id="canvas-viewport" class="relative w-full h-full overflow-hidden cursor-default">
+    
+    <!-- 世界坐标系容器 -->
+    <div id="world-layer">
+      <!-- 群组容器层（最底层） -->
+      <div id="clusters-layer"></div>
+
+      <!-- 手绘笔迹、图形与直线 SVG 层 -->
+      <svg id="drawings-svg" class="overflow-visible pointer-events-none" style="position:absolute; top:0; left:0; width:1px; height:1px;">
+        <g id="drawings-container"></g>
+        <g id="temp-drawing-container" class="pointer-events-none"></g>
+      </svg>
+
+      <!-- SVG 贝塞尔连线层 -->
+      <svg id="edges-svg" class="overflow-visible pointer-events-none" style="position:absolute; top:0; left:0; width:1px; height:1px;">
+        <defs>
+          <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#a8a29e" />
+          </marker>
+          <marker id="arrowhead-dark" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#52525b" />
+          </marker>
+          <marker id="arrowhead-selected" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#3b82f6" />
+          </marker>
+        </defs>
+        <g id="edges-container"></g>
+        <path id="temp-edge-path" d="" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-dasharray="5,5" class="hidden pointer-events-none" />
+      </svg>
+
+      <!-- 连线标签层 -->
+      <div id="edge-labels-layer"></div>
+
+      <!-- 词条卡片 Token 层 -->
+      <div id="tokens-layer"></div>
+    </div>
+
+    <!-- 框选矩形（屏幕坐标系） -->
+    <div id="marquee-box" class="hidden fixed pointer-events-none border border-blue-500 bg-blue-500/10 rounded-lg z-40"></div>
+
+    <!-- 双击快速新建 Token 浮层输入框 -->
+    <div id="quick-input-box" class="hidden fixed z-50 animate-pop">
+      <div class="bg-white dark:bg-zinc-800 rounded-2xl shadow-float border border-stone-200 dark:border-zinc-700 p-1.5 flex items-center gap-1.5 min-w-[220px]">
+        <input
+          id="quick-input-field"
+          type="text"
+          placeholder="输入灵感词条，回车生成..."
+          class="w-full px-3 py-1.5 text-sm bg-transparent outline-none text-stone-800 dark:text-zinc-100 placeholder-stone-400 dark:placeholder-zinc-500"
+          autocomplete="off"
+        />
+        <button id="quick-input-confirm" title="回车确认" class="px-2.5 py-1.5 rounded-xl bg-stone-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-xs font-medium hover:opacity-90 transition shrink-0">
+          ↵
+        </button>
+      </div>
+    </div>
+
+    <!-- 2. 顶部极简克制工具栏 -->
+    <header class="fixed top-4 left-4 right-4 z-40 flex items-center justify-between pointer-events-none">
+      <!-- 左侧品牌与看板标题 -->
+      <div class="pointer-events-auto flex items-center gap-2.5 bg-white/85 dark:bg-zinc-900/85 backdrop-blur-md border border-stone-200/80 dark:border-zinc-800 px-3.5 py-2 rounded-2xl shadow-card">
+        <div class="w-6 h-6 rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white font-bold text-xs shadow-sm">
+          ✦
+        </div>
+        <input
+          id="board-title-input"
+          type="text"
+          value="未命名头脑风暴"
+          class="bg-transparent text-sm font-semibold text-stone-800 dark:text-zinc-100 outline-none w-36 sm:w-48 truncate focus:bg-stone-100 dark:focus:bg-zinc-800 px-1.5 py-0.5 rounded-lg transition"
+          title="点击修改白板标题"
+        />
+        <span id="save-status" class="hidden sm:inline-flex items-center gap-1 text-[11px] text-stone-400 dark:text-zinc-500 pl-2 border-l border-stone-200 dark:border-zinc-800">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> 已自动保存
+        </span>
+      </div>
+
+      <!-- 右侧操作区 -->
+      <div class="pointer-events-auto flex items-center gap-1.5 bg-white/85 dark:bg-zinc-900/85 backdrop-blur-md border border-stone-200/80 dark:border-zinc-800 p-1.5 rounded-2xl shadow-card">
+        <button id="btn-undo" title="撤销 (Ctrl/Cmd + Z)" class="p-2 rounded-xl text-stone-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-800 disabled:opacity-35 transition">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3"/></svg>
+        </button>
+        <button id="btn-redo" title="重做 (Ctrl/Cmd + Shift + Z)" class="p-2 rounded-xl text-stone-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-800 disabled:opacity-35 transition">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 15l6-6m0 0l-6-6m6 6H9a6 6 0 000 12h3"/></svg>
+        </button>
+
+        <div class="w-px h-4 bg-stone-200 dark:bg-zinc-700 mx-0.5"></div>
+
+        <button id="btn-load-demo" title="加载示例灵感地图" class="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-stone-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">
+          示例
+        </button>
+        <button id="btn-clear-board" title="清空当前画布" class="px-2.5 py-1.5 rounded-xl text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition">
+          清空
+        </button>
+
+        <div class="w-px h-4 bg-stone-200 dark:bg-zinc-700 mx-0.5"></div>
+
+        <button id="btn-export-modal" class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-stone-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:opacity-90 transition shadow-sm">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+          <span>导出大纲</span>
+        </button>
+
+        <button id="btn-theme-toggle" title="切换深色/浅色模式" class="p-2 rounded-xl text-stone-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">
+          <svg id="icon-sun" class="w-4 h-4 hidden dark:block" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+          <svg id="icon-moon" class="w-4 h-4 block dark:hidden" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- 3. 语义整理悬浮工具栏（选中节点、群组或手绘图形时动态出现） -->
+    <div id="floating-toolbar" class="hidden fixed z-40 animate-pop bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md border border-stone-200 dark:border-zinc-700 px-2.5 py-1.5 rounded-2xl shadow-float flex items-center gap-1.5">
+      <div id="toolbar-colors" class="flex items-center gap-1.5 px-1">
+        <button data-color="neutral" title="中性白/灰" class="w-5 h-5 rounded-full bg-white border border-stone-300 hover:scale-110 transition"></button>
+        <button data-color="yellow" title="灵感黄 · 核心点子" class="w-5 h-5 rounded-full bg-amber-300 border border-amber-400 hover:scale-110 transition"></button>
+        <button data-color="blue" title="核心蓝 · 结构/方向" class="w-5 h-5 rounded-full bg-sky-300 border border-sky-400 hover:scale-110 transition"></button>
+        <button data-color="green" title="行动绿 · 可执行方案" class="w-5 h-5 rounded-full bg-emerald-300 border border-emerald-400 hover:scale-110 transition"></button>
+        <button data-color="purple" title="洞察紫 · 用户痛点/深度思考" class="w-5 h-5 rounded-full bg-purple-300 border border-purple-400 hover:scale-110 transition"></button>
+        <button data-color="red" title="质疑红 · 风险/待验证" class="w-5 h-5 rounded-full bg-rose-300 border border-rose-400 hover:scale-110 transition"></button>
+      </div>
+
+      <div id="toolbar-divider-1" class="w-px h-4 bg-stone-200 dark:bg-zinc-700 mx-0.5"></div>
+
+      <button id="btn-toolbar-branch" title="向右侧发散关联词条 (Tab)" class="flex items-center gap-1 px-2 py-1 rounded-xl text-xs font-medium text-stone-700 dark:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">
+        <span>+ 发散</span>
+      </button>
+
+      <button id="btn-toolbar-group" title="将选中词条归类到群组区域 (Ctrl/Cmd + G)" class="flex items-center gap-1 px-2 py-1 rounded-xl text-xs font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/50 transition">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
+        <span>归类群组</span>
+      </button>
+
+      <div class="w-px h-4 bg-stone-200 dark:bg-zinc-700 mx-0.5"></div>
+
+      <button id="btn-toolbar-delete" title="删除选中项 (Delete / Backspace)" class="p-1.5 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+      </button>
+    </div>
+
+    <!-- 4. 底部交互工具坞与画布视口控制器 -->
+    <footer class="fixed bottom-4 left-4 right-4 z-40 flex items-end justify-between pointer-events-none">
+      <!-- 左下角快捷指引 -->
+      <div class="pointer-events-auto hidden lg:flex items-center gap-2">
+        <button id="btn-shortcuts-help" class="flex items-center gap-2 bg-white/85 dark:bg-zinc-900/85 backdrop-blur-md border border-stone-200/80 dark:border-zinc-800 px-3 py-1.5 rounded-2xl shadow-card text-xs text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-200 transition">
+          <span class="font-medium text-stone-700 dark:text-zinc-300">双击空白处</span> 输入词条
+          <span class="text-stone-300 dark:text-zinc-700">|</span>
+          <span><strong class="font-medium text-stone-700 dark:text-zinc-300">Ctrl+单击</strong> 加减选</span>
+          <span class="ml-1 w-4 h-4 rounded-full bg-stone-100 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300 flex items-center justify-center text-[10px] font-bold">?</span>
+        </button>
+      </div>
+
+      <!-- 底部居中：选择 / 画笔 / 图形 / 直线 绘图工具坞 -->
+      <div id="drawing-dock" class="pointer-events-auto mx-auto flex items-center gap-1 bg-white/92 dark:bg-zinc-900/92 backdrop-blur-md border border-stone-200/90 dark:border-zinc-800 p-1.5 rounded-2xl shadow-float">
+        <!-- 选择指针 (V) -->
+        <button data-tool="select" title="选择与框选指针 (V)" class="tool-btn flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium bg-stone-900 dark:bg-zinc-100 text-white dark:text-zinc-900 transition">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg>
+          <span class="hidden sm:inline">选择</span>
+        </button>
+
+        <!-- 自由画笔 (P) -->
+        <button data-tool="pen" title="自由画笔涂鸦/圈点 (P)" class="tool-btn flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-stone-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+          <span class="hidden sm:inline">画笔</span>
+        </button>
+
+        <!-- 矩形框 (R) -->
+        <button data-tool="rect" title="拖拽拉出矩形框 (R)" class="tool-btn flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-stone-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"/></svg>
+          <span class="hidden sm:inline">矩形</span>
+        </button>
+
+        <!-- 圆形标记 (O) -->
+        <button data-tool="ellipse" title="拖拽拉出圆形/椭圆标记 (O)" class="tool-btn flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-stone-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></svg>
+          <span class="hidden sm:inline">圆形</span>
+        </button>
+
+        <!-- 直线工具 (L) -->
+        <button data-tool="line" title="拖拽绘制直线，按住 Shift 吸附 45° (L)" class="tool-btn flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-stone-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M5 19L19 5"/></svg>
+          <span class="hidden sm:inline">直线</span>
+        </button>
+
+        <div class="w-px h-4 bg-stone-200 dark:bg-zinc-700 mx-0.5"></div>
+
+        <!-- 当前画笔/图形默认色点 -->
+        <div id="dock-color-picker" class="flex items-center gap-1 px-1" title="切换新绘制笔迹与图形的默认颜色">
+          <button data-stroke-color="neutral" class="dock-color-btn w-4 h-4 rounded-full bg-stone-600 dark:bg-zinc-300 ring-2 ring-offset-1 ring-blue-500 transition"></button>
+          <button data-stroke-color="yellow" class="dock-color-btn w-4 h-4 rounded-full bg-amber-400 hover:scale-110 transition"></button>
+          <button data-stroke-color="blue" class="dock-color-btn w-4 h-4 rounded-full bg-sky-500 hover:scale-110 transition"></button>
+          <button data-stroke-color="green" class="dock-color-btn w-4 h-4 rounded-full bg-emerald-500 hover:scale-110 transition"></button>
+          <button data-stroke-color="purple" class="dock-color-btn w-4 h-4 rounded-full bg-purple-500 hover:scale-110 transition"></button>
+          <button data-stroke-color="red" class="dock-color-btn w-4 h-4 rounded-full bg-rose-500 hover:scale-110 transition"></button>
+        </div>
+      </div>
+
+      <!-- 右下角缩放与居中控制 -->
+      <div class="pointer-events-auto flex items-center gap-1 bg-white/85 dark:bg-zinc-900/85 backdrop-blur-md border border-stone-200/80 dark:border-zinc-800 p-1 rounded-2xl shadow-card text-xs">
+        <button id="btn-zoom-out" title="缩小" class="p-1.5 rounded-xl text-stone-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20 12H4"/></svg>
+        </button>
+        <button id="btn-zoom-reset" title="重置为 100%" class="px-2 py-1 rounded-xl font-medium text-stone-700 dark:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-800 transition min-w-[46px] text-center">
+          100%
+        </button>
+        <button id="btn-zoom-in" title="放大" class="p-1.5 rounded-xl text-stone-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+        </button>
+        <div class="w-px h-4 bg-stone-200 dark:bg-zinc-700 mx-0.5"></div>
+        <button id="btn-fit-view" title="一键居中所有灵感节点" class="flex items-center gap-1 px-2.5 py-1.5 rounded-xl font-medium text-stone-700 dark:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/></svg>
+          <span class="hidden sm:inline">居中</span>
+        </button>
+      </div>
+    </footer>
+
+    <!-- 5. 快捷键指南弹窗 -->
+    <div id="modal-shortcuts" class="hidden fixed inset-0 z-50 bg-black/30 backdrop-blur-xs flex items-center justify-center p-4">
+      <div class="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-3xl shadow-float max-w-md w-full p-6 animate-pop">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-base font-bold text-stone-800 dark:text-zinc-100">交互与快捷键指南</h3>
+          <button id="btn-close-shortcuts" class="p-1.5 rounded-xl text-stone-400 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">✕</button>
+        </div>
+        <div class="space-y-3 text-xs text-stone-600 dark:text-zinc-300">
+          <div class="flex justify-between items-center py-1.5 border-b border-stone-100 dark:border-zinc-800">
+            <span>快速新建词条 (Token)</span>
+            <kbd class="px-2 py-0.5 bg-stone-100 dark:bg-zinc-800 rounded-md font-mono text-[11px]">双击画布空白处</kbd>
+          </div>
+          <div class="flex justify-between items-center py-1.5 border-b border-stone-100 dark:border-zinc-800">
+            <span>切换工具（指针/画笔/矩形/圆/直线）</span>
+            <kbd class="px-2 py-0.5 bg-stone-100 dark:bg-zinc-800 rounded-md font-mono text-[11px]">V / P / R / O / L</kbd>
+          </div>
+          <div class="flex justify-between items-center py-1.5 border-b border-stone-100 dark:border-zinc-800">
+            <span>向四周快捷发散子词条</span>
+            <kbd class="px-2 py-0.5 bg-stone-100 dark:bg-zinc-800 rounded-md font-mono text-[11px]">悬停点 + 或按 Tab</kbd>
+          </div>
+          <div class="flex justify-between items-center py-1.5 border-b border-stone-100 dark:border-zinc-800">
+            <span>建立关联连线</span>
+            <kbd class="px-2 py-0.5 bg-stone-100 dark:bg-zinc-800 rounded-md font-mono text-[11px]">拖拽卡片边缘蓝点</kbd>
+          </div>
+          <div class="flex justify-between items-center py-1.5 border-b border-stone-100 dark:border-zinc-800">
+            <span>批量多选与归类群组</span>
+            <kbd class="px-2 py-0.5 bg-stone-100 dark:bg-zinc-800 rounded-md font-mono text-[11px]">Ctrl/Cmd+单击 / 框选 / Ctrl+G</kbd>
+          </div>
+          <div class="flex justify-between items-center py-1.5 border-b border-stone-100 dark:border-zinc-800">
+            <span>平移无限画布</span>
+            <kbd class="px-2 py-0.5 bg-stone-100 dark:bg-zinc-800 rounded-md font-mono text-[11px]">空格+拖拽 / 中键拖拽</kbd>
+          </div>
+          <div class="flex justify-between items-center py-1.5">
+            <span>撤销 / 重做 / 删除</span>
+            <kbd class="px-2 py-0.5 bg-stone-100 dark:bg-zinc-800 rounded-md font-mono text-[11px]">Ctrl+Z / Del</kbd>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 6. 导出结构化大纲与 JSON 弹窗 -->
+    <div id="modal-export" class="hidden fixed inset-0 z-50 bg-black/30 backdrop-blur-xs flex items-center justify-center p-4">
+      <div class="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-3xl shadow-float max-w-xl w-full p-6 animate-pop flex flex-col max-h-[85vh]">
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <h3 class="text-base font-bold text-stone-800 dark:text-zinc-100">整理与导出灵感成果</h3>
+            <p class="text-xs text-stone-500 dark:text-zinc-400 mt-0.5">自动识别群组归类与连线脉络，生成结构化 Markdown 大纲</p>
+          </div>
+          <button id="btn-close-export" class="p-1.5 rounded-xl text-stone-400 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">✕</button>
+        </div>
+
+        <div class="flex items-center gap-2 mb-3 bg-stone-100 dark:bg-zinc-800 p-1 rounded-xl w-fit">
+          <button id="tab-export-md" class="px-3 py-1 rounded-lg text-xs font-medium bg-white dark:bg-zinc-700 text-stone-800 dark:text-zinc-100 shadow-xs transition">Markdown 大纲</button>
+          <button id="tab-export-json" class="px-3 py-1 rounded-lg text-xs font-medium text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-200 transition">JSON 完整备份</button>
+        </div>
+
+        <textarea id="export-preview-area" readonly class="w-full flex-1 min-h-[240px] p-3.5 rounded-2xl bg-stone-50 dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 text-xs font-mono text-stone-700 dark:text-zinc-300 outline-none resize-none leading-relaxed"></textarea>
+
+        <div class="flex items-center justify-between mt-4 pt-2 border-t border-stone-100 dark:border-zinc-800">
+          <label class="cursor-pointer inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium text-stone-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+            <span>导入 JSON 备份</span>
+            <input id="input-import-json" type="file" accept=".json" class="hidden" />
+          </label>
+
+          <div class="flex items-center gap-2">
+            <button id="btn-copy-export" class="px-4 py-2 rounded-xl text-xs font-medium border border-stone-200 dark:border-zinc-700 text-stone-700 dark:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">
+              复制内容
+            </button>
+            <button id="btn-download-export" class="px-4 py-2 rounded-xl text-xs font-medium bg-stone-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:opacity-90 transition">
+              下载文件
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 7. 自定义确认弹窗 -->
+    <div id="modal-confirm" class="hidden fixed inset-0 z-50 bg-black/30 backdrop-blur-xs flex items-center justify-center p-4">
+      <div class="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-3xl shadow-float max-w-sm w-full p-5 animate-pop">
+        <h4 id="confirm-title" class="text-sm font-bold text-stone-800 dark:text-zinc-100">确认操作</h4>
+        <p id="confirm-desc" class="text-xs text-stone-500 dark:text-zinc-400 mt-1.5 leading-relaxed">确定要执行此操作吗？</p>
+        <div class="flex justify-end gap-2 mt-5">
+          <button id="btn-confirm-cancel" class="px-3.5 py-1.5 rounded-xl text-xs font-medium text-stone-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">取消</button>
+          <button id="btn-confirm-ok" class="px-3.5 py-1.5 rounded-xl text-xs font-medium bg-rose-600 text-white hover:bg-rose-700 transition">确定</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 轻量级 Toast 提示 -->
+    <div id="toast-msg" class="hidden fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-stone-900/90 dark:bg-zinc-100/95 text-white dark:text-zinc-900 text-xs font-medium px-4 py-2 rounded-full shadow-float pointer-events-none transition-opacity">
+      提示信息
+    </div>
+
+  </div>
+
+  <script>
+    /**
+     * MindFlow 空间灵感白板核心引擎
+     */
+    (function () {
+      const STORAGE_KEY = 'mindflow_brainstorm_v1';
+      const THEME_KEY = 'mindflow_theme_v1';
+
+      // DOM 引用
+      const viewportEl = document.getElementById('canvas-viewport');
+      const worldLayerEl = document.getElementById('world-layer');
+      const clustersLayerEl = document.getElementById('clusters-layer');
+      const drawingsContainerEl = document.getElementById('drawings-container');
+      const tempDrawingContainerEl = document.getElementById('temp-drawing-container');
+      const edgesContainerEl = document.getElementById('edges-container');
+      const edgeLabelsLayerEl = document.getElementById('edge-labels-layer');
+      const tokensLayerEl = document.getElementById('tokens-layer');
+      const tempEdgePathEl = document.getElementById('temp-edge-path');
+      const marqueeBoxEl = document.getElementById('marquee-box');
+
+      const quickInputBoxEl = document.getElementById('quick-input-box');
+      const quickInputFieldEl = document.getElementById('quick-input-field');
+      const quickInputConfirmEl = document.getElementById('quick-input-confirm');
+
+      const floatingToolbarEl = document.getElementById('floating-toolbar');
+      const boardTitleInputEl = document.getElementById('board-title-input');
+      const zoomResetBtnEl = document.getElementById('btn-zoom-reset');
+
+      // 核心应用状态
+      let state = {
+        title: '未命名头脑风暴',
+        tokens: [],   // { id, text, x, y, color }
+        edges: [],    // { id, source, target, label }
+        clusters: [], // { id, title, x, y, width, height, color }
+        drawings: []  // { id, type: 'pen'|'rect'|'ellipse'|'line', color, points?, x?, y?, width?, height?, x1?, y1?, x2?, y2? }
+      };
+
+      // 当前工具与默认画笔颜色
+      let activeTool = 'select'; // 'select' | 'pen' | 'rect' | 'ellipse' | 'line'
+      let activeStrokeColor = 'neutral';
+
+      // 语义颜色映射（供 SVG 画笔与图形使用）
+      const STROKE_PALETTE = {
+        neutral: { light: '#57534e', dark: '#a1a1aa', fillLight: 'rgba(120, 113, 108, 0.08)', fillDark: 'rgba(161, 161, 170, 0.1)' },
+        yellow:  { light: '#eab308', dark: '#facc15', fillLight: 'rgba(250, 204, 21, 0.14)', fillDark: 'rgba(250, 204, 21, 0.14)' },
+        blue:    { light: '#0284c7', dark: '#38bdf8', fillLight: 'rgba(56, 189, 248, 0.14)', fillDark: 'rgba(56, 189, 248, 0.14)' },
+        green:   { light: '#16a34a', dark: '#4ade80', fillLight: 'rgba(74, 222, 128, 0.14)', fillDark: 'rgba(74, 222, 128, 0.14)' },
+        purple:  { light: '#9333ea', dark: '#c084fc', fillLight: 'rgba(192, 132, 252, 0.14)', fillDark: 'rgba(192, 132, 252, 0.14)' },
+        red:     { light: '#e11d48', dark: '#fb7185', fillLight: 'rgba(251, 113, 133, 0.14)', fillDark: 'rgba(251, 113, 133, 0.14)' }
+      };
+
+      // 视口变换状态
+      let viewport = {
+        x: window.innerWidth / 2,
+        y: window.innerHeight / 2,
+        scale: 1
+      };
+
+      // 选中状态集合
+      let selection = {
+        tokens: new Set(),
+        edges: new Set(),
+        clusters: new Set(),
+        drawings: new Set()
+      };
+
+      // 撤销/重做历史栈
+      let historyPast = [];
+      let historyFuture = [];
+      const MAX_HISTORY = 40;
+
+      // 交互状态机
+      let interaction = {
+        mode: 'idle', // 'idle' | 'pan' | 'marquee' | 'drag-items' | 'drag-cluster' | 'resize-cluster' | 'connect-edge' | 'drawing'
+        startClientX: 0,
+        startClientY: 0,
+        startWorldX: 0,
+        startWorldY: 0,
+        startViewportX: 0,
+        startViewportY: 0,
+        initialPositions: new Map(), // 记录拖拽前各元素坐标
+        marqueeBaseTokens: new Set(),
+        marqueeBaseClusters: new Set(),
+        marqueeBaseDrawings: new Set(),
+        pendingToggleItem: null, // { type: 'token'|'drawing', id }
+        activeClusterId: null,
+        initialClusterRect: null,
+        connectSourceId: null,
+        draftDrawing: null, // 正在绘制的临时图形/笔迹
+        hasMoved: false,
+        pendingCreateWorldPos: null,
+        pendingParentTokenId: null
+      };
+
+      let isSpacePressed = false;
+      let currentExportTab = 'md';
+
+      function isMultiSelectModifier(e) {
+        return Boolean(e.ctrlKey || e.metaKey || e.shiftKey);
+      }
+
+      function uid(prefix = 'id') {
+        return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+      }
+
+      function cloneState(s) {
+        return JSON.parse(JSON.stringify(s));
+      }
+
+      function screenToWorld(clientX, clientY) {
+        return {
+          x: (clientX - viewport.x) / viewport.scale,
+          y: (clientY - viewport.y) / viewport.scale
+        };
+      }
+
+      function worldToScreen(worldX, worldY) {
+        return {
+          x: worldX * viewport.scale + viewport.x,
+          y: worldY * viewport.scale + viewport.y
+        };
+      }
+
+      // 切换工具模式
+      function setActiveTool(tool) {
+        activeTool = tool;
+        document.querySelectorAll('.tool-btn').forEach(btn => {
+          const isMatch = btn.dataset.tool === tool;
+          if (isMatch) {
+            btn.className = 'tool-btn flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium bg-stone-900 dark:bg-zinc-100 text-white dark:text-zinc-900 transition shadow-xs';
+          } else {
+            btn.className = 'tool-btn flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-stone-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-800 transition';
+          }
+        });
+
+        if (tool === 'select') {
+          viewportEl.classList.remove('drawing-mode-active');
+          viewportEl.style.cursor = isSpacePressed ? 'grab' : 'default';
+        } else {
+          clearSelection();
+          viewportEl.classList.add('drawing-mode-active');
+          viewportEl.style.cursor = 'crosshair';
+        }
+      }
+
+      // 轻量级 Toast 提示
+      let toastTimer = null;
+      function showToast(msg) {
+        const el = document.getElementById('toast-msg');
+        el.textContent = msg;
+        el.classList.remove('hidden');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => {
+          el.classList.add('hidden');
+        }, 2200);
+      }
+
+      // 自定义确认弹窗
+      function showConfirm(title, desc, onConfirm) {
+        const modal = document.getElementById('modal-confirm');
+        document.getElementById('confirm-title').textContent = title;
+        document.getElementById('confirm-desc').textContent = desc;
+        modal.classList.remove('hidden');
+
+        const okBtn = document.getElementById('btn-confirm-ok');
+        const cancelBtn = document.getElementById('btn-confirm-cancel');
+
+        const cleanup = () => {
+          modal.classList.add('hidden');
+          okBtn.onclick = null;
+          cancelBtn.onclick = null;
+        };
+
+        okBtn.onclick = () => {
+          cleanup();
+          onConfirm();
+        };
+        cancelBtn.onclick = cleanup;
+      }
+
+      // 历史记录：推入快照
+      function pushHistory() {
+        historyPast.push(cloneState(state));
+        if (historyPast.length > MAX_HISTORY) {
+          historyPast.shift();
+        }
+        historyFuture = [];
+        updateUndoRedoButtons();
+      }
+
+      function undo() {
+        if (historyPast.length === 0) return;
+        historyFuture.push(cloneState(state));
+        state = historyPast.pop();
+        clearSelection();
+        renderAll();
+        saveToLocalStorage();
+        updateUndoRedoButtons();
+        showToast('已撤销上一步操作');
+      }
+
+      function redo() {
+        if (historyFuture.length === 0) return;
+        historyPast.push(cloneState(state));
+        state = historyFuture.pop();
+        clearSelection();
+        renderAll();
+        saveToLocalStorage();
+        updateUndoRedoButtons();
+        showToast('已重做操作');
+      }
+
+      function updateUndoRedoButtons() {
+        document.getElementById('btn-undo').disabled = historyPast.length === 0;
+        document.getElementById('btn-redo').disabled = historyFuture.length === 0;
+      }
+
+      // 本地存储持久化
+      function saveToLocalStorage() {
+        try {
+          const payload = { state, viewport };
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+          const statusEl = document.getElementById('save-status');
+          if (statusEl) {
+            statusEl.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> 已保存`;
+          }
+        } catch (e) {
+          console.warn('本地保存失败', e);
+        }
+      }
+
+      function loadFromLocalStorage() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) return false;
+          const parsed = JSON.parse(raw);
+          if (parsed && parsed.state) {
+            state = {
+              title: parsed.state.title || '未命名头脑风暴',
+              tokens: Array.isArray(parsed.state.tokens) ? parsed.state.tokens : [],
+              edges: Array.isArray(parsed.state.edges) ? parsed.state.edges : [],
+              clusters: Array.isArray(parsed.state.clusters) ? parsed.state.clusters : [],
+              drawings: Array.isArray(parsed.state.drawings) ? parsed.state.drawings : []
+            };
+            if (parsed.viewport) {
+              viewport = parsed.viewport;
+            }
+            return true;
+          }
+        } catch (e) {
+          console.warn('读取本地存档失败', e);
+        }
+        return false;
+      }
+
+      // 加载内置示例模板
+      function loadDemoData() {
+        state = {
+          title: '新产品灵感发散 · AI 语音笔记',
+          clusters: [
+            { id: 'cl_1', title: '核心痛点洞察', x: -380, y: -170, width: 270, height: 290, color: 'purple' },
+            { id: 'cl_2', title: 'MVP 核心功能', x: 130, y: -190, width: 320, height: 360, color: 'blue' }
+          ],
+          tokens: [
+            { id: 'tk_root', text: '随时随地语音捕捉灵感', x: -70, y: -30, color: 'yellow' },
+            { id: 'tk_1', text: '打字太慢，想法转瞬即逝', x: -340, y: -100, color: 'purple' },
+            { id: 'tk_2', text: '通勤/散步时双手被占用', x: -340, y: 10, color: 'purple' },
+            { id: 'tk_3', text: '锁屏一键录音 Widget', x: 170, y: -120, color: 'blue' },
+            { id: 'tk_4', text: '自动提炼关键词 Token', x: 170, y: -20, color: 'green' },
+            { id: 'tk_5', text: '自动归类到主题白板', x: 170, y: 80, color: 'green' },
+            { id: 'tk_6', text: '嘈杂环境语音识别准确率？', x: -70, y: 130, color: 'red' }
+          ],
+          edges: [
+            { id: 'ed_1', source: 'tk_1', target: 'tk_root', label: '催生需求' },
+            { id: 'ed_2', source: 'tk_2', target: 'tk_root', label: '场景' },
+            { id: 'ed_3', source: 'tk_root', target: 'tk_3', label: '入口' },
+            { id: 'ed_4', source: 'tk_root', target: 'tk_4', label: 'AI 处理' },
+            { id: 'ed_5', source: 'tk_4', target: 'tk_5', label: '结构化' },
+            { id: 'ed_6', source: 'tk_root', target: 'tk_6', label: '风险点' }
+          ],
+          drawings: []
+        };
+        viewport = {
+          x: window.innerWidth / 2,
+          y: window.innerHeight / 2,
+          scale: 1
+        };
+        clearSelection();
+        renderAll();
+        saveToLocalStorage();
+      }
+
+      // 更新世界变换矩阵与网格背景偏移
+      function applyViewportTransform() {
+        worldLayerEl.style.transform = `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})`;
+        const gridSize = 24 * viewport.scale;
+        viewportEl.style.backgroundSize = `${gridSize}px ${gridSize}px`;
+        viewportEl.style.backgroundPosition = `${viewport.x}px ${viewport.y}px`;
+        zoomResetBtnEl.textContent = `${Math.round(viewport.scale * 100)}%`;
+        updateFloatingToolbarPosition();
+      }
+
+      // 获取手绘/图形包围盒（用于多选框选与悬浮工具栏定位）
+      function getDrawingBounds(d) {
+        if (d.type === 'rect' || d.type === 'ellipse') {
+          return { x: d.x, y: d.y, width: d.width, height: d.height };
+        }
+        if (d.type === 'line') {
+          const minX = Math.min(d.x1, d.x2);
+          const minY = Math.min(d.y1, d.y2);
+          return { x: minX, y: minY, width: Math.abs(d.x2 - d.x1) || 10, height: Math.abs(d.y2 - d.y1) || 10 };
+        }
+        if (d.type === 'pen' && Array.isArray(d.points) && d.points.length > 0) {
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          d.points.forEach(p => {
+            minX = Math.min(minX, p.x);
+            minY = Math.min(minY, p.y);
+            maxX = Math.max(maxX, p.x);
+            maxY = Math.max(maxY, p.y);
+          });
+          return { x: minX, y: minY, width: (maxX - minX) || 10, height: (maxY - minY) || 10 };
+        }
+        return { x: 0, y: 0, width: 10, height: 10 };
+      }
+
+      // 创建单个手绘/图形 SVG 节点
+      function buildDrawingSvgElement(d, isDraft = false) {
+        const isDark = document.documentElement.classList.contains('dark');
+        const palette = STROKE_PALETTE[d.color || 'neutral'] || STROKE_PALETTE.neutral;
+        const strokeColor = isDark ? palette.dark : palette.light;
+        const fillColor = isDark ? palette.fillDark : palette.fillLight;
+
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        g.setAttribute('class', `drawing-group ${!isDraft && selection.drawings.has(d.id) ? 'selected' : ''}`);
+        if (!isDraft) g.dataset.id = d.id;
+
+        if (d.type === 'pen' && d.points && d.points.length > 0) {
+          const pathData = d.points.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+          const visiblePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          visiblePath.setAttribute('d', pathData);
+          visiblePath.setAttribute('fill', 'none');
+          visiblePath.setAttribute('stroke', strokeColor);
+          visiblePath.setAttribute('stroke-width', '3');
+          visiblePath.setAttribute('stroke-linecap', 'round');
+          visiblePath.setAttribute('stroke-linejoin', 'round');
+          visiblePath.setAttribute('class', 'drawing-outline pointer-events-none');
+          g.appendChild(visiblePath);
+
+          if (!isDraft) {
+            const hitPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            hitPath.setAttribute('d', pathData);
+            hitPath.setAttribute('class', 'drawing-hit');
+            g.appendChild(hitPath);
+          }
+        } else if (d.type === 'rect') {
+          const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+          rect.setAttribute('x', d.x);
+          rect.setAttribute('y', d.y);
+          rect.setAttribute('width', Math.max(2, d.width));
+          rect.setAttribute('height', Math.max(2, d.height));
+          rect.setAttribute('rx', '12');
+          rect.setAttribute('fill', fillColor);
+          rect.setAttribute('stroke', strokeColor);
+          rect.setAttribute('stroke-width', '2.5');
+          rect.setAttribute('class', `drawing-outline ${isDraft ? 'pointer-events-none' : 'drawing-shape-fill'}`);
+          g.appendChild(rect);
+        } else if (d.type === 'ellipse') {
+          const cx = d.x + d.width / 2;
+          const cy = d.y + d.height / 2;
+          const rx = Math.max(2, d.width / 2);
+          const ry = Math.max(2, d.height / 2);
+          const ellipse = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+          ellipse.setAttribute('cx', cx);
+          ellipse.setAttribute('cy', cy);
+          ellipse.setAttribute('rx', rx);
+          ellipse.setAttribute('ry', ry);
+          ellipse.setAttribute('fill', fillColor);
+          ellipse.setAttribute('stroke', strokeColor);
+          ellipse.setAttribute('stroke-width', '2.5');
+          ellipse.setAttribute('class', `drawing-outline ${isDraft ? 'pointer-events-none' : 'drawing-shape-fill'}`);
+          g.appendChild(ellipse);
+        } else if (d.type === 'line') {
+          const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+          line.setAttribute('x1', d.x1);
+          line.setAttribute('y1', d.y1);
+          line.setAttribute('x2', d.x2);
+          line.setAttribute('y2', d.y2);
+          line.setAttribute('stroke', strokeColor);
+          line.setAttribute('stroke-width', '3');
+          line.setAttribute('stroke-linecap', 'round');
+          line.setAttribute('class', 'drawing-outline pointer-events-none');
+          g.appendChild(line);
+
+          if (!isDraft) {
+            const hitLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            hitLine.setAttribute('x1', d.x1);
+            hitLine.setAttribute('y1', d.y1);
+            hitLine.setAttribute('x2', d.x2);
+            hitLine.setAttribute('y2', d.y2);
+            hitLine.setAttribute('class', 'drawing-hit');
+            g.appendChild(hitLine);
+          }
+        }
+
+        // 选中虚线外框高亮
+        if (!isDraft && selection.drawings.has(d.id)) {
+          const b = getDrawingBounds(d);
+          const selRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+          selRect.setAttribute('x', b.x - 6);
+          selRect.setAttribute('y', b.y - 6);
+          selRect.setAttribute('width', b.width + 12);
+          selRect.setAttribute('height', b.height + 12);
+          selRect.setAttribute('rx', '8');
+          selRect.setAttribute('fill', 'none');
+          selRect.setAttribute('stroke', '#3b82f6');
+          selRect.setAttribute('stroke-width', '1.5');
+          selRect.setAttribute('stroke-dasharray', '4,3');
+          selRect.setAttribute('class', 'pointer-events-none');
+          g.appendChild(selRect);
+        }
+
+        // 绑定选中与拖拽移动事件
+        if (!isDraft) {
+          g.addEventListener('pointerdown', (e) => {
+            if (e.button !== 0 || isSpacePressed || activeTool !== 'select') return;
+            e.stopPropagation();
+
+            const isMulti = isMultiSelectModifier(e);
+            interaction.pendingToggleItem = null;
+
+            if (isMulti) {
+              if (selection.drawings.has(d.id)) {
+                interaction.pendingToggleItem = { type: 'drawing', id: d.id };
+              } else {
+                selection.drawings.add(d.id);
+                updateSelectionVisuals();
+              }
+            } else if (!selection.drawings.has(d.id)) {
+              clearSelection();
+              selection.drawings.add(d.id);
+              updateSelectionVisuals();
+            }
+
+            beginDragSelectedItems(e);
+          });
+        }
+
+        return g;
+      }
+
+      // 渲染所有手绘笔迹与图形
+      function renderDrawings() {
+        drawingsContainerEl.innerHTML = '';
+        state.drawings.forEach(d => {
+          drawingsContainerEl.appendChild(buildDrawingSvgElement(d, false));
+        });
+      }
+
+      // 渲染群组容器 (Clusters)
+      function renderClusters() {
+        clustersLayerEl.innerHTML = '';
+        state.clusters.forEach(cluster => {
+          const box = document.createElement('div');
+          box.className = `cluster-box ${selection.clusters.has(cluster.id) ? 'selected' : ''}`;
+          box.dataset.id = cluster.id;
+          box.style.left = `${cluster.x}px`;
+          box.style.top = `${cluster.y}px`;
+          box.style.width = `${cluster.width}px`;
+          box.style.height = `${cluster.height}px`;
+
+          const header = document.createElement('div');
+          header.className = 'px-4 py-2.5 flex items-center justify-between cursor-grab active:cursor-grabbing';
+
+          const titleInput = document.createElement('input');
+          titleInput.type = 'text';
+          titleInput.value = cluster.title;
+          titleInput.readOnly = true;
+          titleInput.className = 'bg-transparent text-xs font-bold tracking-wide text-stone-600 dark:text-zinc-300 outline-none focus:bg-white/60 dark:focus:bg-zinc-800/80 px-1.5 py-0.5 rounded-md w-full cursor-inherit';
+          titleInput.addEventListener('dblclick', (e) => {
+            e.stopPropagation();
+            titleInput.readOnly = false;
+            titleInput.classList.remove('cursor-inherit');
+            titleInput.focus();
+            titleInput.select();
+          });
+          titleInput.addEventListener('pointerdown', (e) => {
+            if (!titleInput.readOnly) e.stopPropagation();
+          });
+          titleInput.addEventListener('blur', () => {
+            titleInput.readOnly = true;
+            titleInput.classList.add('cursor-inherit');
+          });
+          titleInput.addEventListener('change', (e) => {
+            pushHistory();
+            cluster.title = e.target.value.trim() || '未命名群组';
+            saveToLocalStorage();
+          });
+          titleInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') titleInput.blur();
+          });
+
+          header.appendChild(titleInput);
+          box.appendChild(header);
+
+          const resizeHandle = document.createElement('div');
+          resizeHandle.className = 'absolute bottom-1.5 right-1.5 w-4 h-4 cursor-nwse-resize flex items-center justify-center text-stone-400 hover:text-blue-500';
+          resizeHandle.innerHTML = `<svg class="w-3 h-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11 5L5 11M11 9L9 11"/></svg>`;
+          resizeHandle.addEventListener('pointerdown', (e) => {
+            e.stopPropagation();
+            pushHistory();
+            interaction.mode = 'resize-cluster';
+            interaction.activeClusterId = cluster.id;
+            interaction.startClientX = e.clientX;
+            interaction.startClientY = e.clientY;
+            interaction.initialClusterRect = {
+              x: cluster.x,
+              y: cluster.y,
+              width: cluster.width,
+              height: cluster.height
+            };
+          });
+          box.appendChild(resizeHandle);
+
+          box.addEventListener('pointerdown', (e) => {
+            if (e.button !== 0 || isSpacePressed || activeTool !== 'select') return;
+            if (e.target.tagName === 'INPUT' && !e.target.readOnly) return;
+            e.stopPropagation();
+
+            const isMulti = isMultiSelectModifier(e);
+            if (isMulti) {
+              if (selection.clusters.has(cluster.id)) {
+                selection.clusters.delete(cluster.id);
+              } else {
+                selection.clusters.add(cluster.id);
+              }
+              updateSelectionVisuals();
+              if (!selection.clusters.has(cluster.id)) return;
+            } else if (!selection.clusters.has(cluster.id)) {
+              clearSelection();
+              selection.clusters.add(cluster.id);
+              updateSelectionVisuals();
+            }
+
+            interaction.mode = 'drag-cluster';
+            interaction.activeClusterId = cluster.id;
+            interaction.startClientX = e.clientX;
+            interaction.startClientY = e.clientY;
+            interaction.hasMoved = false;
+            interaction.initialPositions.clear();
+            interaction.initialPositions.set(cluster.id, { x: cluster.x, y: cluster.y });
+
+            state.tokens.forEach(t => {
+              const tCenterX = t.x + 60;
+              const tCenterY = t.y + 20;
+              if (
+                tCenterX >= cluster.x &&
+                tCenterX <= cluster.x + cluster.width &&
+                tCenterY >= cluster.y &&
+                tCenterY <= cluster.y + cluster.height
+              ) {
+                interaction.initialPositions.set(t.id, { x: t.x, y: t.y });
+              }
+            });
+          });
+
+          clustersLayerEl.appendChild(box);
+        });
+      }
+
+      // 渲染词条卡片 (Tokens)
+      function renderTokens() {
+        tokensLayerEl.innerHTML = '';
+        state.tokens.forEach(token => {
+          const el = document.createElement('div');
+          const themeClass = `theme-${token.color || 'neutral'}`;
+          const isSelected = selection.tokens.has(token.id);
+          el.className = `token-node ${themeClass} shadow-card hover:shadow-card-hover px-4 py-2.5 text-sm font-medium leading-snug break-words ${isSelected ? 'selected' : ''}`;
+          el.dataset.id = token.id;
+          el.style.left = `${token.x}px`;
+          el.style.top = `${token.y}px`;
+
+          const textSpan = document.createElement('div');
+          textSpan.className = 'token-text pointer-events-none';
+          textSpan.textContent = token.text;
+          el.appendChild(textSpan);
+
+          // 右侧快捷发散按钮 (+)
+          const branchBtn = document.createElement('button');
+          branchBtn.title = '向右侧发散关联词条 (Tab)';
+          branchBtn.className = 'quick-branch-btn absolute -right-7 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs font-bold shadow-sm hover:scale-110 transition cursor-pointer';
+          branchBtn.textContent = '+';
+          branchBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+          branchBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            triggerQuickBranch(token);
+          });
+          el.appendChild(branchBtn);
+
+          // 边缘连接拖拽锚点
+          const anchors = [
+            { pos: 'top', cls: '-top-1.5 left-1/2 -translate-x-1/2' },
+            { pos: 'bottom', cls: '-bottom-1.5 left-1/2 -translate-x-1/2' },
+            { pos: 'left', cls: 'top-1/2 -left-1.5 -translate-y-1/2' },
+            { pos: 'right', cls: 'top-1/2 -right-1.5 -translate-y-1/2' }
+          ];
+          anchors.forEach(a => {
+            const dot = document.createElement('div');
+            dot.title = '拖拽连接到其他词条';
+            dot.className = `node-handle absolute ${a.cls} w-3 h-3 rounded-full bg-blue-500 border-2 border-white dark:border-zinc-900 shadow-xs cursor-crosshair hover:scale-125`;
+            dot.addEventListener('pointerdown', (e) => {
+              e.stopPropagation();
+              startConnectEdge(token.id, e.clientX, e.clientY);
+            });
+            el.appendChild(dot);
+          });
+
+          // 单击选中与多选拖拽（支持 Ctrl/Cmd + 单击 与 Shift + 单击 多选切换）
+          el.addEventListener('pointerdown', (e) => {
+            if (e.button !== 0 || isSpacePressed || activeTool !== 'select') return;
+            e.stopPropagation();
+
+            const isMulti = isMultiSelectModifier(e);
+            interaction.pendingToggleItem = null;
+
+            if (isMulti) {
+              if (selection.tokens.has(token.id)) {
+                interaction.pendingToggleItem = { type: 'token', id: token.id };
+              } else {
+                selection.tokens.add(token.id);
+                updateSelectionVisuals();
+              }
+            } else if (!selection.tokens.has(token.id)) {
+              clearSelection();
+              selection.tokens.add(token.id);
+              updateSelectionVisuals();
+            }
+
+            beginDragSelectedItems(e);
+          });
+
+          // 双击原地编辑词条内容
+          el.addEventListener('dblclick', (e) => {
+            e.stopPropagation();
+            openInlineTokenEditor(token, el);
+          });
+
+          tokensLayerEl.appendChild(el);
+        });
+      }
+
+      // 启动选中元素（Tokens + Drawings）的统一拖拽
+      function beginDragSelectedItems(e) {
+        interaction.mode = 'drag-items';
+        interaction.startClientX = e.clientX;
+        interaction.startClientY = e.clientY;
+        interaction.hasMoved = false;
+        interaction.initialPositions.clear();
+
+        selection.tokens.forEach(id => {
+          const t = state.tokens.find(item => item.id === id);
+          if (t) interaction.initialPositions.set(`token:${id}`, { x: t.x, y: t.y });
+        });
+
+        selection.drawings.forEach(id => {
+          const d = state.drawings.find(item => item.id === id);
+          if (d) {
+            if (d.type === 'rect' || d.type === 'ellipse') {
+              interaction.initialPositions.set(`drawing:${id}`, { x: d.x, y: d.y });
+            } else if (d.type === 'line') {
+              interaction.initialPositions.set(`drawing:${id}`, { x1: d.x1, y1: d.y1, x2: d.x2, y2: d.y2 });
+            } else if (d.type === 'pen') {
+              interaction.initialPositions.set(`drawing:${id}`, { points: d.points.map(p => ({ ...p })) });
+            }
+          }
+        });
+      }
+
+      // 原地编辑 Token 文本
+      function openInlineTokenEditor(token, nodeEl) {
+        const textDiv = nodeEl.querySelector('.token-text');
+        if (!textDiv) return;
+
+        const input = document.createElement('textarea');
+        input.value = token.text;
+        input.rows = Math.max(1, Math.ceil(token.text.length / 14));
+        input.className = 'w-full bg-transparent outline-none resize-none text-sm font-medium leading-snug text-inherit';
+        textDiv.replaceWith(input);
+        input.focus();
+        input.select();
+
+        let committed = false;
+        const commitEdit = () => {
+          if (committed) return;
+          committed = true;
+          const val = input.value.trim();
+          if (val && val !== token.text) {
+            pushHistory();
+            token.text = val;
+            saveToLocalStorage();
+          }
+          renderTokens();
+          renderEdges();
+        };
+
+        input.addEventListener('pointerdown', (e) => e.stopPropagation());
+        input.addEventListener('blur', commitEdit);
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            commitEdit();
+          } else if (e.key === 'Escape') {
+            committed = true;
+            renderTokens();
+          }
+        });
+      }
+
+      // 计算两个 Token 之间的平滑贝塞尔曲线及锚点
+      function computeEdgeGeometry(sourceToken, targetToken) {
+        const sEl = tokensLayerEl.querySelector(`[data-id="${sourceToken.id}"]`);
+        const tEl = tokensLayerEl.querySelector(`[data-id="${targetToken.id}"]`);
+        const sW = sEl ? sEl.offsetWidth : 140;
+        const sH = sEl ? sEl.offsetHeight : 42;
+        const tW = tEl ? tEl.offsetWidth : 140;
+        const tH = tEl ? tEl.offsetHeight : 42;
+
+        const sCx = sourceToken.x + sW / 2;
+        const sCy = sourceToken.y + sH / 2;
+        const tCx = targetToken.x + tW / 2;
+        const tCy = targetToken.y + tH / 2;
+
+        const dx = tCx - sCx;
+        const dy = tCy - sCy;
+
+        let p1, p2, cp1, cp2;
+        if (Math.abs(dx) >= Math.abs(dy)) {
+          if (dx >= 0) {
+            p1 = { x: sourceToken.x + sW, y: sCy };
+            p2 = { x: targetToken.x, y: tCy };
+          } else {
+            p1 = { x: sourceToken.x, y: sCy };
+            p2 = { x: targetToken.x + tW, y: tCy };
+          }
+          const offset = Math.max(45, Math.abs(p2.x - p1.x) * 0.45);
+          cp1 = { x: p1.x + (dx >= 0 ? offset : -offset), y: p1.y };
+          cp2 = { x: p2.x + (dx >= 0 ? -offset : offset), y: p2.y };
+        } else {
+          if (dy >= 0) {
+            p1 = { x: sCx, y: sourceToken.y + sH };
+            p2 = { x: tCx, y: targetToken.y };
+          } else {
+            p1 = { x: sCx, y: sourceToken.y };
+            p2 = { x: tCx, y: targetToken.y + tH };
+          }
+          const offset = Math.max(40, Math.abs(p2.y - p1.y) * 0.45);
+          cp1 = { x: p1.x, y: p1.y + (dy >= 0 ? offset : -offset) };
+          cp2 = { x: p2.x, y: p2.y + (dy >= 0 ? -offset : offset) };
+        }
+
+        const pathD = `M ${p1.x} ${p1.y} C ${cp1.x} ${cp1.y}, ${cp2.x} ${cp2.y}, ${p2.x} ${p2.y}`;
+        const midX = 0.125 * p1.x + 0.375 * cp1.x + 0.375 * cp2.x + 0.125 * p2.x;
+        const midY = 0.125 * p1.y + 0.375 * cp1.y + 0.375 * cp2.y + 0.125 * p2.y;
+
+        return { pathD, midX, midY };
+      }
+
+      // 渲染连线 (Edges) 与关系标签
+      function renderEdges() {
+        edgesContainerEl.innerHTML = '';
+        edgeLabelsLayerEl.innerHTML = '';
+        const isDark = document.documentElement.classList.contains('dark');
+
+        state.edges.forEach(edge => {
+          const source = state.tokens.find(t => t.id === edge.source);
+          const target = state.tokens.find(t => t.id === edge.target);
+          if (!source || !target) return;
+
+          const { pathD, midX, midY } = computeEdgeGeometry(source, target);
+          const isSelected = selection.edges.has(edge.id);
+
+          const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+          g.setAttribute('class', `edge-group ${isSelected ? 'selected' : ''}`);
+          g.dataset.id = edge.id;
+
+          const hitPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          hitPath.setAttribute('d', pathD);
+          hitPath.setAttribute('class', 'edge-path-hit');
+
+          const visiblePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          visiblePath.setAttribute('d', pathD);
+          visiblePath.setAttribute('class', 'edge-path-visible');
+          const markerId = isSelected ? 'arrowhead-selected' : (isDark ? 'arrowhead-dark' : 'arrowhead');
+          visiblePath.setAttribute('marker-end', `url(#${markerId})`);
+
+          g.appendChild(hitPath);
+          g.appendChild(visiblePath);
+
+          const selectEdgeHandler = (e) => {
+            if (activeTool !== 'select') return;
+            e.stopPropagation();
+            if (isMultiSelectModifier(e)) {
+              if (selection.edges.has(edge.id)) {
+                selection.edges.delete(edge.id);
+              } else {
+                selection.edges.add(edge.id);
+              }
+            } else {
+              clearSelection();
+              selection.edges.add(edge.id);
+            }
+            updateSelectionVisuals();
+          };
+          const editEdgeLabelHandler = (e) => {
+            if (activeTool !== 'select') return;
+            e.stopPropagation();
+            openEdgeLabelEditor(edge, midX, midY);
+          };
+
+          hitPath.addEventListener('pointerdown', selectEdgeHandler);
+          hitPath.addEventListener('dblclick', editEdgeLabelHandler);
+          edgesContainerEl.appendChild(g);
+
+          if (edge.label) {
+            const labelBadge = document.createElement('div');
+            labelBadge.className = `absolute -translate-x-1/2 -translate-y-1/2 px-2 py-0.5 rounded-full text-[11px] font-medium bg-white/95 dark:bg-zinc-800/95 border ${isSelected ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-stone-200 dark:border-zinc-700 text-stone-500 dark:text-zinc-400'} shadow-xs cursor-pointer hover:border-blue-400 transition`;
+            labelBadge.style.left = `${midX}px`;
+            labelBadge.style.top = `${midY}px`;
+            labelBadge.textContent = edge.label;
+            labelBadge.addEventListener('pointerdown', selectEdgeHandler);
+            labelBadge.addEventListener('dblclick', editEdgeLabelHandler);
+            edgeLabelsLayerEl.appendChild(labelBadge);
+          }
+        });
+      }
+
+      // 双击连线编辑关系标签
+      function openEdgeLabelEditor(edge, worldX, worldY) {
+        const screenPos = worldToScreen(worldX, worldY);
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = edge.label || '';
+        input.placeholder = '输入关系标签...';
+        input.className = 'fixed z-50 -translate-x-1/2 -translate-y-1/2 px-2.5 py-1 rounded-full text-xs bg-white dark:bg-zinc-800 border border-blue-500 shadow-float outline-none text-stone-800 dark:text-zinc-100 text-center min-w-[110px]';
+        input.style.left = `${screenPos.x}px`;
+        input.style.top = `${screenPos.y}px`;
+        document.body.appendChild(input);
+        input.focus();
+        input.select();
+
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          const val = input.value.trim();
+          if (val !== (edge.label || '')) {
+            pushHistory();
+            edge.label = val;
+            saveToLocalStorage();
+          }
+          input.remove();
+          renderEdges();
+        };
+
+        input.addEventListener('blur', finish);
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') finish();
+          if (e.key === 'Escape') {
+            done = true;
+            input.remove();
+          }
+        });
+      }
+
+      // 整体重绘
+      function renderAll() {
+        boardTitleInputEl.value = state.title;
+        renderClusters();
+        renderDrawings();
+        renderTokens();
+        renderEdges();
+        applyViewportTransform();
+        updateSelectionVisuals();
+      }
+
+      // 清空选中态
+      function clearSelection() {
+        selection.tokens.clear();
+        selection.edges.clear();
+        selection.clusters.clear();
+        selection.drawings.clear();
+        updateSelectionVisuals();
+      }
+
+      // 更新选中高亮与悬浮工具栏显隐
+      function updateSelectionVisuals() {
+        tokensLayerEl.querySelectorAll('.token-node').forEach(el => {
+          el.classList.toggle('selected', selection.tokens.has(el.dataset.id));
+        });
+        clustersLayerEl.querySelectorAll('.cluster-box').forEach(el => {
+          el.classList.toggle('selected', selection.clusters.has(el.dataset.id));
+        });
+        renderDrawings();
+        renderEdges();
+
+        const totalSelected = selection.tokens.size + selection.edges.size + selection.clusters.size + selection.drawings.size;
+        if (totalSelected > 0) {
+          floatingToolbarEl.classList.remove('hidden');
+          const hasTokensOrDrawings = selection.tokens.size > 0 || selection.drawings.size > 0;
+          document.getElementById('toolbar-colors').classList.toggle('hidden', !hasTokensOrDrawings);
+          document.getElementById('toolbar-divider-1').classList.toggle('hidden', !hasTokensOrDrawings);
+          document.getElementById('btn-toolbar-branch').classList.toggle('hidden', selection.tokens.size !== 1);
+          document.getElementById('btn-toolbar-group').classList.toggle('hidden', selection.tokens.size === 0);
+          updateFloatingToolbarPosition();
+        } else {
+          floatingToolbarEl.classList.add('hidden');
+        }
+      }
+
+      // 计算悬浮工具栏屏幕位置
+      function updateFloatingToolbarPosition() {
+        if (floatingToolbarEl.classList.contains('hidden')) return;
+
+        let minX = Infinity, minY = Infinity, maxX = -Infinity;
+
+        selection.tokens.forEach(id => {
+          const t = state.tokens.find(item => item.id === id);
+          if (t) {
+            minX = Math.min(minX, t.x);
+            minY = Math.min(minY, t.y);
+            maxX = Math.max(maxX, t.x + 140);
+          }
+        });
+
+        selection.clusters.forEach(id => {
+          const c = state.clusters.find(item => item.id === id);
+          if (c) {
+            minX = Math.min(minX, c.x);
+            minY = Math.min(minY, c.y);
+            maxX = Math.max(maxX, c.x + c.width);
+          }
+        });
+
+        selection.drawings.forEach(id => {
+          const d = state.drawings.find(item => item.id === id);
+          if (d) {
+            const b = getDrawingBounds(d);
+            minX = Math.min(minX, b.x);
+            minY = Math.min(minY, b.y);
+            maxX = Math.max(maxX, b.x + b.width);
+          }
+        });
+
+        if (minX === Infinity && selection.edges.size > 0) {
+          const edgeId = Array.from(selection.edges)[0];
+          const edge = state.edges.find(e => e.id === edgeId);
+          if (edge) {
+            const s = state.tokens.find(t => t.id === edge.source);
+            const t = state.tokens.find(t => t.id === edge.target);
+            if (s && t) {
+              minX = (s.x + t.x) / 2;
+              maxX = minX + 100;
+              minY = (s.y + t.y) / 2;
+            }
+          }
+        }
+
+        if (minX === Infinity) return;
+
+        const screenTopLeft = worldToScreen(minX, minY);
+        const screenTopRight = worldToScreen(maxX, minY);
+        const centerX = (screenTopLeft.x + screenTopRight.x) / 2;
+
+        const tbWidth = floatingToolbarEl.offsetWidth || 280;
+        const left = Math.max(16, Math.min(window.innerWidth - tbWidth - 16, centerX - tbWidth / 2));
+        const top = Math.max(72, screenTopLeft.y - 54);
+
+        floatingToolbarEl.style.left = `${left}px`;
+        floatingToolbarEl.style.top = `${top}px`;
+      }
+
+      // 打开双击快速创建词条输入框
+      function openQuickInput(clientX, clientY, worldX, worldY, parentTokenId = null) {
+        interaction.pendingCreateWorldPos = { x: worldX, y: worldY };
+        interaction.pendingParentTokenId = parentTokenId;
+
+        quickInputBoxEl.classList.remove('hidden');
+        const boxW = 240;
+        const left = Math.max(16, Math.min(window.innerWidth - boxW - 16, clientX - 24));
+        const top = Math.max(70, Math.min(window.innerHeight - 80, clientY - 20));
+        quickInputBoxEl.style.left = `${left}px`;
+        quickInputBoxEl.style.top = `${top}px`;
+
+        quickInputFieldEl.value = '';
+        quickInputFieldEl.placeholder = parentTokenId ? '输入关联发散词条，回车生成...' : '输入灵感词条，回车生成...';
+        setTimeout(() => quickInputFieldEl.focus(), 10);
+      }
+
+      function closeQuickInput() {
+        quickInputBoxEl.classList.add('hidden');
+        interaction.pendingCreateWorldPos = null;
+        interaction.pendingParentTokenId = null;
+      }
+
+      // 确认新建 Token
+      function commitQuickInput() {
+        const text = quickInputFieldEl.value.trim();
+        const pos = interaction.pendingCreateWorldPos;
+        const parentId = interaction.pendingParentTokenId;
+        closeQuickInput();
+
+        if (!text || !pos) return;
+
+        pushHistory();
+        const newToken = {
+          id: uid('tk'),
+          text,
+          x: Math.round(pos.x),
+          y: Math.round(pos.y),
+          color: parentId ? (state.tokens.find(t => t.id === parentId)?.color || 'neutral') : 'neutral'
+        };
+        state.tokens.push(newToken);
+
+        if (parentId) {
+          state.edges.push({
+            id: uid('ed'),
+            source: parentId,
+            target: newToken.id,
+            label: ''
+          });
+        }
+
+        clearSelection();
+        selection.tokens.add(newToken.id);
+        renderAll();
+        saveToLocalStorage();
+      }
+
+      // 快捷向右侧发散子词条
+      function triggerQuickBranch(parentToken) {
+        const parentEl = tokensLayerEl.querySelector(`[data-id="${parentToken.id}"]`);
+        const pW = parentEl ? parentEl.offsetWidth : 140;
+        const siblingCount = state.edges.filter(e => e.source === parentToken.id).length;
+        const targetWorldX = parentToken.x + pW + 90;
+        const targetWorldY = parentToken.y + (siblingCount % 2 === 0 ? siblingCount * 36 : -siblingCount * 36);
+        const screenPos = worldToScreen(targetWorldX, targetWorldY);
+
+        openQuickInput(screenPos.x, screenPos.y, targetWorldX, targetWorldY, parentToken.id);
+      }
+
+      // 拖拽创建连线
+      function startConnectEdge(sourceId, clientX, clientY) {
+        interaction.mode = 'connect-edge';
+        interaction.connectSourceId = sourceId;
+        const worldPos = screenToWorld(clientX, clientY);
+        const sourceToken = state.tokens.find(t => t.id === sourceId);
+        if (!sourceToken) return;
+
+        tempEdgePathEl.classList.remove('hidden');
+        tempEdgePathEl.setAttribute('d', `M ${sourceToken.x + 60} ${sourceToken.y + 20} L ${worldPos.x} ${worldPos.y}`);
+      }
+
+      // 将选中的 Token 聚合成空间群组 Cluster
+      function groupSelectedTokens() {
+        if (selection.tokens.size === 0) return;
+
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        selection.tokens.forEach(id => {
+          const t = state.tokens.find(item => item.id === id);
+          const el = tokensLayerEl.querySelector(`[data-id="${id}"]`);
+          if (t) {
+            const w = el ? el.offsetWidth : 140;
+            const h = el ? el.offsetHeight : 44;
+            minX = Math.min(minX, t.x);
+            minY = Math.min(minY, t.y);
+            maxX = Math.max(maxX, t.x + w);
+            maxY = Math.max(maxY, t.y + h);
+          }
+        });
+
+        if (minX === Infinity) return;
+
+        pushHistory();
+        const newCluster = {
+          id: uid('cl'),
+          title: `灵感主题 #${state.clusters.length + 1}`,
+          x: minX - 28,
+          y: minY - 46,
+          width: Math.max(200, (maxX - minX) + 56),
+          height: Math.max(140, (maxY - minY) + 74),
+          color: 'neutral'
+        };
+        state.clusters.push(newCluster);
+
+        clearSelection();
+        selection.clusters.add(newCluster.id);
+        renderAll();
+        saveToLocalStorage();
+        showToast('已将选中词条归类为空间群组，双击标题可重命名');
+      }
+
+      // 删除所有选中元素
+      function deleteSelectedItems() {
+        if (selection.tokens.size === 0 && selection.edges.size === 0 && selection.clusters.size === 0 && selection.drawings.size === 0) return;
+        pushHistory();
+
+        if (selection.tokens.size > 0) {
+          state.tokens = state.tokens.filter(t => !selection.tokens.has(t.id));
+          state.edges = state.edges.filter(e => !selection.tokens.has(e.source) && !selection.tokens.has(e.target));
+        }
+        if (selection.edges.size > 0) {
+          state.edges = state.edges.filter(e => !selection.edges.has(e.id));
+        }
+        if (selection.clusters.size > 0) {
+          state.clusters = state.clusters.filter(c => !selection.clusters.has(c.id));
+        }
+        if (selection.drawings.size > 0) {
+          state.drawings = state.drawings.filter(d => !selection.drawings.has(d.id));
+        }
+
+        clearSelection();
+        renderAll();
+        saveToLocalStorage();
+      }
+
+      // 一键居中自适应视口
+      function fitViewToContent() {
+        const hasAny = state.tokens.length > 0 || state.clusters.length > 0 || state.drawings.length > 0;
+        if (!hasAny) {
+          viewport = { x: window.innerWidth / 2, y: window.innerHeight / 2, scale: 1 };
+          applyViewportTransform();
+          return;
+        }
+
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        state.tokens.forEach(t => {
+          minX = Math.min(minX, t.x);
+          minY = Math.min(minY, t.y);
+          maxX = Math.max(maxX, t.x + 160);
+          maxY = Math.max(maxY, t.y + 50);
+        });
+        state.clusters.forEach(c => {
+          minX = Math.min(minX, c.x);
+          minY = Math.min(minY, c.y);
+          maxX = Math.max(maxX, c.x + c.width);
+          maxY = Math.max(maxY, c.y + c.height);
+        });
+        state.drawings.forEach(d => {
+          const b = getDrawingBounds(d);
+          minX = Math.min(minX, b.x);
+          minY = Math.min(minY, b.y);
+          maxX = Math.max(maxX, b.x + b.width);
+          maxY = Math.max(maxY, b.y + b.height);
+        });
+
+        const contentW = maxX - minX;
+        const contentH = maxY - minY;
+        const padding = 120;
+        const scaleX = (window.innerWidth - padding * 2) / Math.max(200, contentW);
+        const scaleY = (window.innerHeight - padding * 2) / Math.max(200, contentH);
+        const newScale = Math.max(0.35, Math.min(1.2, Math.min(scaleX, scaleY)));
+
+        const centerX = (minX + maxX) / 2;
+        const centerY = (minY + maxY) / 2;
+
+        viewport.scale = newScale;
+        viewport.x = window.innerWidth / 2 - centerX * newScale;
+        viewport.y = window.innerHeight / 2 - centerY * newScale;
+        applyViewportTransform();
+        saveToLocalStorage();
+      }
+
+      // 生成结构化 Markdown 大纲
+      function generateMarkdownOutline() {
+        const lines = [`# ${state.title || '头脑风暴整理大纲'}`, ''];
+        const assignedTokenIds = new Set();
+
+        const childrenMap = new Map();
+        state.edges.forEach(e => {
+          if (!childrenMap.has(e.source)) childrenMap.set(e.source, []);
+          childrenMap.get(e.source).push({ targetId: e.target, label: e.label });
+        });
+
+        function formatBranch(token, depth = 0, visited = new Set()) {
+          if (!token || visited.has(token.id)) return;
+          visited.add(token.id);
+          const indent = '  '.repeat(depth);
+          lines.push(`${indent}- **${token.text}**`);
+          const children = childrenMap.get(token.id) || [];
+          children.forEach(ch => {
+            const childToken = state.tokens.find(t => t.id === ch.targetId);
+            if (childToken && !visited.has(childToken.id)) {
+              const relTag = ch.label ? ` *[${ch.label}]*` : '';
+              const subIndent = '  '.repeat(depth + 1);
+              lines.push(`${subIndent}- ${childToken.text}${relTag}`);
+              visited.add(childToken.id);
+              const grandChildren = childrenMap.get(childToken.id) || [];
+              grandChildren.forEach(gc => {
+                const gcToken = state.tokens.find(t => t.id === gc.targetId);
+                if (gcToken) formatBranch(gcToken, depth + 2, visited);
+              });
+            }
+          });
+        }
+
+        if (state.clusters.length > 0) {
+          state.clusters.forEach(cluster => {
+            const members = state.tokens.filter(t => {
+              const cx = t.x + 60;
+              const cy = t.y + 20;
+              return cx >= cluster.x && cx <= cluster.x + cluster.width && cy >= cluster.y && cy <= cluster.y + cluster.height;
+            });
+            lines.push(`## 📁 ${cluster.title}`);
+            if (members.length === 0) {
+              lines.push('- *(暂无归类词条)*');
+            } else {
+              members.forEach(m => {
+                assignedTokenIds.add(m.id);
+                formatBranch(m, 0, new Set());
+              });
+            }
+            lines.push('');
+          });
+        }
+
+        const unassigned = state.tokens.filter(t => !assignedTokenIds.has(t.id));
+        if (unassigned.length > 0) {
+          lines.push(state.clusters.length > 0 ? '## 💡 未归类发散词条' : '## 💡 灵感脉络');
+          const hasIncoming = new Set(state.edges.map(e => e.target));
+          const roots = unassigned.filter(t => !hasIncoming.has(t.id));
+          const visited = new Set();
+
+          (roots.length > 0 ? roots : unassigned).forEach(r => {
+            if (!visited.has(r.id)) formatBranch(r, 0, visited);
+          });
+          unassigned.forEach(t => {
+            if (!visited.has(t.id)) formatBranch(t, 0, visited);
+          });
+          lines.push('');
+        }
+
+        return lines.join('\n');
+      }
+
+      // ================= 事件绑定 =================
+
+      // 1. 双击画布空白处快速输入词条
+      viewportEl.addEventListener('dblclick', (e) => {
+        if (e.target !== viewportEl && e.target !== worldLayerEl && e.target.id !== 'edges-svg' && e.target.id !== 'drawings-svg') return;
+        if (activeTool !== 'select') setActiveTool('select');
+        const worldPos = screenToWorld(e.clientX, e.clientY);
+        openQuickInput(e.clientX, e.clientY, worldPos.x - 55, worldPos.y - 20, null);
+      });
+
+      // 2. 画布 PointerDown（平移 / 框选 / 自由画笔与图形绘制）
+      viewportEl.addEventListener('pointerdown', (e) => {
+        if (!quickInputBoxEl.classList.contains('hidden')) {
+          commitQuickInput();
+        }
+
+        if (e.button === 1 || (e.button === 0 && isSpacePressed)) {
+          interaction.mode = 'pan';
+          interaction.startClientX = e.clientX;
+          interaction.startClientY = e.clientY;
+          interaction.startViewportX = viewport.x;
+          interaction.startViewportY = viewport.y;
+          viewportEl.style.cursor = 'grabbing';
+          return;
+        }
+
+        if (e.button === 0) {
+          const worldPos = screenToWorld(e.clientX, e.clientY);
+
+          // 若当前为绘图工具模式（画笔 / 矩形 / 圆形 / 直线）
+          if (activeTool !== 'select') {
+            interaction.mode = 'drawing';
+            interaction.startWorldX = worldPos.x;
+            interaction.startWorldY = worldPos.y;
+            interaction.hasMoved = false;
+
+            if (activeTool === 'pen') {
+              interaction.draftDrawing = {
+                id: uid('dr'),
+                type: 'pen',
+                color: activeStrokeColor,
+                points: [{ x: worldPos.x, y: worldPos.y }]
+              };
+            } else if (activeTool === 'rect' || activeTool === 'ellipse') {
+              interaction.draftDrawing = {
+                id: uid('dr'),
+                type: activeTool,
+                color: activeStrokeColor,
+                x: worldPos.x,
+                y: worldPos.y,
+                width: 1,
+                height: 1
+              };
+            } else if (activeTool === 'line') {
+              interaction.draftDrawing = {
+                id: uid('dr'),
+                type: 'line',
+                color: activeStrokeColor,
+                x1: worldPos.x,
+                y1: worldPos.y,
+                x2: worldPos.x,
+                y2: worldPos.y
+              };
+            }
+
+            tempDrawingContainerEl.innerHTML = '';
+            tempDrawingContainerEl.appendChild(buildDrawingSvgElement(interaction.draftDrawing, true));
+            return;
+          }
+
+          // 默认选择模式下启动框选
+          const isAdditive = isMultiSelectModifier(e);
+          if (!isAdditive) {
+            clearSelection();
+            interaction.marqueeBaseTokens.clear();
+            interaction.marqueeBaseClusters.clear();
+            interaction.marqueeBaseDrawings.clear();
+          } else {
+            interaction.marqueeBaseTokens = new Set(selection.tokens);
+            interaction.marqueeBaseClusters = new Set(selection.clusters);
+            interaction.marqueeBaseDrawings = new Set(selection.drawings);
+          }
+          interaction.mode = 'marquee';
+          interaction.startClientX = e.clientX;
+          interaction.startClientY = e.clientY;
+          marqueeBoxEl.style.left = `${e.clientX}px`;
+          marqueeBoxEl.style.top = `${e.clientY}px`;
+          marqueeBoxEl.style.width = '0px';
+          marqueeBoxEl.style.height = '0px';
+          marqueeBoxEl.classList.remove('hidden');
+        }
+      });
+
+      // 3. 全局 PointerMove
+      window.addEventListener('pointermove', (e) => {
+        if (interaction.mode === 'idle') return;
+
+        if (interaction.mode === 'pan') {
+          viewport.x = interaction.startViewportX + (e.clientX - interaction.startClientX);
+          viewport.y = interaction.startViewportY + (e.clientY - interaction.startClientY);
+          applyViewportTransform();
+          return;
+        }
+
+        if (interaction.mode === 'drawing' && interaction.draftDrawing) {
+          const wp = screenToWorld(e.clientX, e.clientY);
+          const dist = Math.hypot(wp.x - interaction.startWorldX, wp.y - interaction.startWorldY);
+          if (dist > 2 / viewport.scale) interaction.hasMoved = true;
+
+          const d = interaction.draftDrawing;
+          if (d.type === 'pen') {
+            const lastPt = d.points[d.points.length - 1];
+            if (Math.hypot(wp.x - lastPt.x, wp.y - lastPt.y) > 2 / viewport.scale) {
+              d.points.push({ x: wp.x, y: wp.y });
+            }
+          } else if (d.type === 'rect' || d.type === 'ellipse') {
+            d.x = Math.min(interaction.startWorldX, wp.x);
+            d.y = Math.min(interaction.startWorldY, wp.y);
+            d.width = Math.abs(wp.x - interaction.startWorldX);
+            d.height = Math.abs(wp.y - interaction.startWorldY);
+          } else if (d.type === 'line') {
+            let x2 = wp.x;
+            let y2 = wp.y;
+            // 按住 Shift 自动吸附 45° 水平/垂直/对角线
+            if (e.shiftKey) {
+              const dx = x2 - d.x1;
+              const dy = y2 - d.y1;
+              const angle = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4);
+              const len = Math.hypot(dx, dy);
+              x2 = d.x1 + Math.cos(angle) * len;
+              y2 = d.y1 + Math.sin(angle) * len;
+            }
+            d.x2 = x2;
+            d.y2 = y2;
+          }
+
+          tempDrawingContainerEl.innerHTML = '';
+          tempDrawingContainerEl.appendChild(buildDrawingSvgElement(d, true));
+          return;
+        }
+
+        if (interaction.mode === 'marquee') {
+          const left = Math.min(interaction.startClientX, e.clientX);
+          const top = Math.min(interaction.startClientY, e.clientY);
+          const width = Math.abs(e.clientX - interaction.startClientX);
+          const height = Math.abs(e.clientY - interaction.startClientY);
+
+          marqueeBoxEl.style.left = `${left}px`;
+          marqueeBoxEl.style.top = `${top}px`;
+          marqueeBoxEl.style.width = `${width}px`;
+          marqueeBoxEl.style.height = `${height}px`;
+
+          const wTopLeft = screenToWorld(left, top);
+          const wBottomRight = screenToWorld(left + width, top + height);
+
+          selection.tokens = new Set(interaction.marqueeBaseTokens);
+          state.tokens.forEach(t => {
+            if (t.x + 120 >= wTopLeft.x && t.x <= wBottomRight.x && t.y + 40 >= wTopLeft.y && t.y <= wBottomRight.y) {
+              selection.tokens.add(t.id);
+            }
+          });
+
+          selection.clusters = new Set(interaction.marqueeBaseClusters);
+          state.clusters.forEach(c => {
+            if (c.x + c.width >= wTopLeft.x && c.x <= wBottomRight.x && c.y + c.height >= wTopLeft.y && c.y <= wBottomRight.y) {
+              selection.clusters.add(c.id);
+            }
+          });
+
+          selection.drawings = new Set(interaction.marqueeBaseDrawings);
+          state.drawings.forEach(d => {
+            const b = getDrawingBounds(d);
+            if (b.x + b.width >= wTopLeft.x && b.x <= wBottomRight.x && b.y + b.height >= wTopLeft.y && b.y <= wBottomRight.y) {
+              selection.drawings.add(d.id);
+            }
+          });
+
+          updateSelectionVisuals();
+          return;
+        }
+
+        if (interaction.mode === 'drag-items') {
+          const dx = (e.clientX - interaction.startClientX) / viewport.scale;
+          const dy = (e.clientY - interaction.startClientY) / viewport.scale;
+          if (!interaction.hasMoved && (Math.abs(dx) > 2 || Math.abs(dy) > 2)) {
+            interaction.hasMoved = true;
+            interaction.pendingToggleItem = null;
+            pushHistory();
+          }
+          if (interaction.hasMoved) {
+            selection.tokens.forEach(id => {
+              const initPos = interaction.initialPositions.get(`token:${id}`);
+              const token = state.tokens.find(t => t.id === id);
+              if (initPos && token) {
+                token.x = Math.round(initPos.x + dx);
+                token.y = Math.round(initPos.y + dy);
+                const el = tokensLayerEl.querySelector(`[data-id="${id}"]`);
+                if (el) {
+                  el.style.left = `${token.x}px`;
+                  el.style.top = `${token.y}px`;
+                }
+              }
+            });
+
+            if (selection.drawings.size > 0) {
+              selection.drawings.forEach(id => {
+                const initPos = interaction.initialPositions.get(`drawing:${id}`);
+                const d = state.drawings.find(item => item.id === id);
+                if (initPos && d) {
+                  if (d.type === 'rect' || d.type === 'ellipse') {
+                    d.x = Math.round(initPos.x + dx);
+                    d.y = Math.round(initPos.y + dy);
+                  } else if (d.type === 'line') {
+                    d.x1 = Math.round(initPos.x1 + dx);
+                    d.y1 = Math.round(initPos.y1 + dy);
+                    d.x2 = Math.round(initPos.x2 + dx);
+                    d.y2 = Math.round(initPos.y2 + dy);
+                  } else if (d.type === 'pen') {
+                    d.points = initPos.points.map(p => ({ x: p.x + dx, y: p.y + dy }));
+                  }
+                }
+              });
+              renderDrawings();
+            }
+
+            renderEdges();
+            updateFloatingToolbarPosition();
+          }
+          return;
+        }
+
+        if (interaction.mode === 'drag-cluster') {
+          const dx = (e.clientX - interaction.startClientX) / viewport.scale;
+          const dy = (e.clientY - interaction.startClientY) / viewport.scale;
+          if (!interaction.hasMoved && (Math.abs(dx) > 2 || Math.abs(dy) > 2)) {
+            interaction.hasMoved = true;
+            pushHistory();
+          }
+          if (interaction.hasMoved) {
+            const cluster = state.clusters.find(c => c.id === interaction.activeClusterId);
+            const cInit = interaction.initialPositions.get(interaction.activeClusterId);
+            if (cluster && cInit) {
+              cluster.x = Math.round(cInit.x + dx);
+              cluster.y = Math.round(cInit.y + dy);
+              const cEl = clustersLayerEl.querySelector(`[data-id="${cluster.id}"]`);
+              if (cEl) {
+                cEl.style.left = `${cluster.x}px`;
+                cEl.style.top = `${cluster.y}px`;
+              }
+            }
+            interaction.initialPositions.forEach((initPos, id) => {
+              if (id === interaction.activeClusterId) return;
+              const token = state.tokens.find(t => t.id === id);
+              if (token) {
+                token.x = Math.round(initPos.x + dx);
+                token.y = Math.round(initPos.y + dy);
+                const tEl = tokensLayerEl.querySelector(`[data-id="${id}"]`);
+                if (tEl) {
+                  tEl.style.left = `${token.x}px`;
+                  tEl.style.top = `${token.y}px`;
+                }
+              }
+            });
+            renderEdges();
+            updateFloatingToolbarPosition();
+          }
+          return;
+        }
+
+        if (interaction.mode === 'resize-cluster') {
+          const dx = (e.clientX - interaction.startClientX) / viewport.scale;
+          const dy = (e.clientY - interaction.startClientY) / viewport.scale;
+          const cluster = state.clusters.find(c => c.id === interaction.activeClusterId);
+          if (cluster && interaction.initialClusterRect) {
+            cluster.width = Math.max(180, Math.round(interaction.initialClusterRect.width + dx));
+            cluster.height = Math.max(120, Math.round(interaction.initialClusterRect.height + dy));
+            const cEl = clustersLayerEl.querySelector(`[data-id="${cluster.id}"]`);
+            if (cEl) {
+              cEl.style.width = `${cluster.width}px`;
+              cEl.style.height = `${cluster.height}px`;
+            }
+            updateFloatingToolbarPosition();
+          }
+          return;
+        }
+
+        if (interaction.mode === 'connect-edge') {
+          const worldPos = screenToWorld(e.clientX, e.clientY);
+          const sourceToken = state.tokens.find(t => t.id === interaction.connectSourceId);
+          if (sourceToken) {
+            const sX = sourceToken.x + 60;
+            const sY = sourceToken.y + 20;
+            tempEdgePathEl.setAttribute('d', `M ${sX} ${sY} C ${(sX + worldPos.x) / 2} ${sY}, ${(sX + worldPos.x) / 2} ${worldPos.y}, ${worldPos.x} ${worldPos.y}`);
+          }
+        }
+      });
+
+      // 4. 全局 PointerUp
+      window.addEventListener('pointerup', (e) => {
+        if (interaction.mode === 'pan') {
+          viewportEl.style.cursor = isSpacePressed ? 'grab' : (activeTool === 'select' ? 'default' : 'crosshair');
+        } else if (interaction.mode === 'drawing') {
+          tempDrawingContainerEl.innerHTML = '';
+          const d = interaction.draftDrawing;
+          if (d && interaction.hasMoved) {
+            pushHistory();
+            state.drawings.push(d);
+            renderDrawings();
+            saveToLocalStorage();
+            // 矩形、圆形、直线绘制完成后自动切回选择指针，方便立即调整位置；画笔保持连续涂鸦体验
+            if (d.type !== 'pen') {
+              setActiveTool('select');
+              selection.drawings.add(d.id);
+              updateSelectionVisuals();
+            }
+          }
+          interaction.draftDrawing = null;
+        } else if (interaction.mode === 'marquee') {
+          marqueeBoxEl.classList.add('hidden');
+        } else if (interaction.mode === 'drag-items') {
+          if (interaction.pendingToggleItem && !interaction.hasMoved) {
+            if (interaction.pendingToggleItem.type === 'token') {
+              selection.tokens.delete(interaction.pendingToggleItem.id);
+            } else if (interaction.pendingToggleItem.type === 'drawing') {
+              selection.drawings.delete(interaction.pendingToggleItem.id);
+            }
+            updateSelectionVisuals();
+          } else if (interaction.hasMoved) {
+            saveToLocalStorage();
+          }
+          interaction.pendingToggleItem = null;
+        } else if (interaction.mode === 'drag-cluster' || interaction.mode === 'resize-cluster') {
+          saveToLocalStorage();
+        } else if (interaction.mode === 'connect-edge') {
+          tempEdgePathEl.classList.add('hidden');
+          const targetEl = document.elementFromPoint(e.clientX, e.clientY)?.closest('.token-node');
+          const targetId = targetEl?.dataset?.id;
+          if (targetId && targetId !== interaction.connectSourceId) {
+            const exists = state.edges.some(ed => ed.source === interaction.connectSourceId && ed.target === targetId);
+            if (!exists) {
+              pushHistory();
+              state.edges.push({
+                id: uid('ed'),
+                source: interaction.connectSourceId,
+                target: targetId,
+                label: ''
+              });
+              renderEdges();
+              saveToLocalStorage();
+            }
+          }
+        }
+        interaction.mode = 'idle';
+      });
+
+      // 5. 滚轮缩放与平移
+      viewportEl.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        if (e.ctrlKey || e.metaKey) {
+          const zoomFactor = e.deltaY < 0 ? 1.08 : 0.92;
+          const newScale = Math.max(0.25, Math.min(2.5, viewport.scale * zoomFactor));
+          const worldBefore = screenToWorld(e.clientX, e.clientY);
+          viewport.scale = newScale;
+          viewport.x = e.clientX - worldBefore.x * newScale;
+          viewport.y = e.clientY - worldBefore.y * newScale;
+        } else {
+          viewport.x -= e.deltaX;
+          viewport.y -= e.deltaY;
+        }
+        applyViewportTransform();
+      }, { passive: false });
+
+      // 6. 键盘快捷键与空格平移状态
+      window.addEventListener('keydown', (e) => {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+        if (e.code === 'Space' && !isSpacePressed) {
+          e.preventDefault();
+          isSpacePressed = true;
+          viewportEl.style.cursor = 'grab';
+          return;
+        }
+
+        // 工具切换快捷键
+        if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+          const k = e.key.toLowerCase();
+          if (k === 'v') { setActiveTool('select'); return; }
+          if (k === 'p') { setActiveTool('pen'); return; }
+          if (k === 'r') { setActiveTool('rect'); return; }
+          if (k === 'o') { setActiveTool('ellipse'); return; }
+          if (k === 'l') { setActiveTool('line'); return; }
+        }
+
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+          e.preventDefault();
+          if (e.shiftKey) redo();
+          else undo();
+          return;
+        }
+
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
+          e.preventDefault();
+          groupSelectedTokens();
+          return;
+        }
+
+        if (e.key === 'Tab' && selection.tokens.size === 1) {
+          e.preventDefault();
+          const id = Array.from(selection.tokens)[0];
+          const token = state.tokens.find(t => t.id === id);
+          if (token) triggerQuickBranch(token);
+          return;
+        }
+
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+          e.preventDefault();
+          deleteSelectedItems();
+          return;
+        }
+
+        if (e.key === 'Escape') {
+          if (activeTool !== 'select') setActiveTool('select');
+          clearSelection();
+          closeQuickInput();
+        }
+      });
+
+      window.addEventListener('keyup', (e) => {
+        if (e.code === 'Space') {
+          isSpacePressed = false;
+          viewportEl.style.cursor = activeTool === 'select' ? 'default' : 'crosshair';
+        }
+      });
+
+      // 7. 底部绘图工具坞事件绑定
+      document.querySelectorAll('.tool-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          setActiveTool(btn.dataset.tool);
+        });
+      });
+
+      document.querySelectorAll('.dock-color-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          activeStrokeColor = btn.dataset.strokeColor;
+          document.querySelectorAll('.dock-color-btn').forEach(b => {
+            b.classList.remove('ring-2', 'ring-offset-1', 'ring-blue-500');
+          });
+          btn.classList.add('ring-2', 'ring-offset-1', 'ring-blue-500');
+        });
+      });
+
+      // 8. 快速输入框与悬浮工具栏交互
+      quickInputFieldEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          commitQuickInput();
+        } else if (e.key === 'Escape') {
+          closeQuickInput();
+        }
+      });
+      quickInputConfirmEl.addEventListener('click', commitQuickInput);
+
+      floatingToolbarEl.addEventListener('pointerdown', (e) => {
+        e.stopPropagation();
+      });
+
+      document.querySelectorAll('#toolbar-colors button').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const color = btn.dataset.color;
+          if (!color) return;
+          if (selection.tokens.size === 0 && selection.drawings.size === 0) return;
+
+          pushHistory();
+          selection.tokens.forEach(id => {
+            const t = state.tokens.find(item => item.id === id);
+            if (t) t.color = color;
+          });
+          selection.drawings.forEach(id => {
+            const d = state.drawings.find(item => item.id === id);
+            if (d) d.color = color;
+          });
+
+          renderTokens();
+          renderDrawings();
+          saveToLocalStorage();
+        });
+      });
+
+      document.getElementById('btn-toolbar-branch').addEventListener('click', () => {
+        if (selection.tokens.size === 1) {
+          const id = Array.from(selection.tokens)[0];
+          const token = state.tokens.find(t => t.id === id);
+          if (token) triggerQuickBranch(token);
+        }
+      });
+
+      document.getElementById('btn-toolbar-group').addEventListener('click', groupSelectedTokens);
+      document.getElementById('btn-toolbar-delete').addEventListener('click', deleteSelectedItems);
+
+      // 9. 顶部栏按钮事件
+      boardTitleInputEl.addEventListener('change', (e) => {
+        state.title = e.target.value.trim() || '未命名头脑风暴';
+        saveToLocalStorage();
+      });
+      boardTitleInputEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') boardTitleInputEl.blur();
+      });
+
+      document.getElementById('btn-undo').addEventListener('click', undo);
+      document.getElementById('btn-redo').addEventListener('click', redo);
+
+      document.getElementById('btn-load-demo').addEventListener('click', () => {
+        showConfirm('加载示例灵感白板', '当前画布内容将被替换为示例模板（可通过 Ctrl+Z 撤销），是否继续？', () => {
+          pushHistory();
+          loadDemoData();
+          fitViewToContent();
+          showToast('已加载示例白板');
+        });
+      });
+
+      document.getElementById('btn-clear-board').addEventListener('click', () => {
+        showConfirm('清空当前画布', '确定要清空所有词条、手绘图形、连线和群组吗？（可通过 Ctrl+Z 撤销）', () => {
+          pushHistory();
+          state.tokens = [];
+          state.edges = [];
+          state.clusters = [];
+          state.drawings = [];
+          clearSelection();
+          renderAll();
+          saveToLocalStorage();
+          showToast('画布已清空，双击任意处重新开始');
+        });
+      });
+
+      const themeToggleBtn = document.getElementById('btn-theme-toggle');
+      function setTheme(isDark) {
+        document.documentElement.classList.toggle('dark', isDark);
+        localStorage.setItem(THEME_KEY, isDark ? 'dark' : 'light');
+        renderDrawings();
+        renderEdges();
+      }
+      themeToggleBtn.addEventListener('click', () => {
+        setTheme(!document.documentElement.classList.contains('dark'));
+      });
+
+      // 10. 视口控制按钮
+      document.getElementById('btn-zoom-in').addEventListener('click', () => {
+        viewport.scale = Math.min(2.5, viewport.scale * 1.15);
+        applyViewportTransform();
+      });
+      document.getElementById('btn-zoom-out').addEventListener('click', () => {
+        viewport.scale = Math.max(0.25, viewport.scale * 0.85);
+        applyViewportTransform();
+      });
+      zoomResetBtnEl.addEventListener('click', () => {
+        viewport.scale = 1;
+        applyViewportTransform();
+      });
+      document.getElementById('btn-fit-view').addEventListener('click', fitViewToContent);
+
+      // 11. 快捷键弹窗
+      const modalShortcuts = document.getElementById('modal-shortcuts');
+      document.getElementById('btn-shortcuts-help').addEventListener('click', () => modalShortcuts.classList.remove('hidden'));
+      document.getElementById('btn-close-shortcuts').addEventListener('click', () => modalShortcuts.classList.add('hidden'));
+      modalShortcuts.addEventListener('click', (e) => {
+        if (e.target === modalShortcuts) modalShortcuts.classList.add('hidden');
+      });
+
+      // 12. 导出与导入弹窗逻辑
+      const modalExport = document.getElementById('modal-export');
+      const exportPreviewArea = document.getElementById('export-preview-area');
+      const tabMdBtn = document.getElementById('tab-export-md');
+      const tabJsonBtn = document.getElementById('tab-export-json');
+
+      function refreshExportPreview() {
+        if (currentExportTab === 'md') {
+          exportPreviewArea.value = generateMarkdownOutline();
+          tabMdBtn.className = 'px-3 py-1 rounded-lg text-xs font-medium bg-white dark:bg-zinc-700 text-stone-800 dark:text-zinc-100 shadow-xs transition';
+          tabJsonBtn.className = 'px-3 py-1 rounded-lg text-xs font-medium text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-200 transition';
+        } else {
+          exportPreviewArea.value = JSON.stringify(state, null, 2);
+          tabJsonBtn.className = 'px-3 py-1 rounded-lg text-xs font-medium bg-white dark:bg-zinc-700 text-stone-800 dark:text-zinc-100 shadow-xs transition';
+          tabMdBtn.className = 'px-3 py-1 rounded-lg text-xs font-medium text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-200 transition';
+        }
+      }
+
+      document.getElementById('btn-export-modal').addEventListener('click', () => {
+        refreshExportPreview();
+        modalExport.classList.remove('hidden');
+      });
+      document.getElementById('btn-close-export').addEventListener('click', () => modalExport.classList.add('hidden'));
+      modalExport.addEventListener('click', (e) => {
+        if (e.target === modalExport) modalExport.classList.add('hidden');
+      });
+
+      tabMdBtn.addEventListener('click', () => {
+        currentExportTab = 'md';
+        refreshExportPreview();
+      });
+      tabJsonBtn.addEventListener('click', () => {
+        currentExportTab = 'json';
+        refreshExportPreview();
+      });
+
+      document.getElementById('btn-copy-export').addEventListener('click', () => {
+        exportPreviewArea.select();
+        try {
+          document.execCommand('copy');
+          showToast('已复制到剪贴板');
+        } catch (err) {
+          showToast('复制失败，请手动全选复制');
+        }
+      });
+
+      document.getElementById('btn-download-export').addEventListener('click', () => {
+        const ext = currentExportTab === 'md' ? 'md' : 'json';
+        const mime = currentExportTab === 'md' ? 'text/markdown;charset=utf-8' : 'application/json;charset=utf-8';
+        const blob = new Blob([exportPreviewArea.value], { type: mime });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${state.title || 'mindflow'}.${ext}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast(`已下载 .${ext} 文件`);
+      });
+
+      document.getElementById('input-import-json').addEventListener('change', (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          try {
+            const imported = JSON.parse(ev.target.result);
+            if (imported && Array.isArray(imported.tokens)) {
+              pushHistory();
+              state = {
+                title: imported.title || '导入的头脑风暴',
+                tokens: imported.tokens || [],
+                edges: imported.edges || [],
+                clusters: imported.clusters || [],
+                drawings: imported.drawings || []
+              };
+              clearSelection();
+              renderAll();
+              fitViewToContent();
+              saveToLocalStorage();
+              modalExport.classList.add('hidden');
+              showToast('成功导入灵感白板数据');
+            } else {
+              showToast('无效的 JSON 备份文件格式');
+            }
+          } catch (err) {
+            showToast('JSON 解析失败，请检查文件内容');
+          }
+        };
+        reader.readAsText(file);
+        e.target.value = '';
+      });
+
+      // 初始化应用
+      function init() {
+        const savedTheme = localStorage.getItem(THEME_KEY);
+        if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+          document.documentElement.classList.add('dark');
+        }
+
+        const hasSaved = loadFromLocalStorage();
+        if (!hasSaved) {
+          loadDemoData();
+        } else {
+          renderAll();
+        }
+        updateUndoRedoButtons();
+      }
+
+      init();
+    })();
+  </script>
+</body>
+</html>
