@@ -42,3 +42,21 @@ test('backup rotation retains twenty previous revisions',async t=>{
  const s=new Store(await tmp(t));await s.init();for(let i=0;i<22;i++)await s.update(i,d=>({...d,title:String(i)}));
  assert.equal((await readdir(path.join(s.directory,'backups'))).length,20);
 });
+test('multi-board creation, switching, deletion and backup restoration work with strokeWidth drawings',async t=>{
+ const s=new Store(await tmp(t));const initial=await s.init();
+ const updated=await s.update(initial.revision,d=>({...d,title:'Board One',drawings:[{id:'dr_sw',type:'pen',color:'green',strokeWidth:6,points:[{x:10,y:10},{x:30,y:40}]}]}));
+ assert.equal(updated.drawings[0].strokeWidth,6);
+ const second=await s.createBoard({title:'Second Board',fromExample:false});
+ assert.notEqual(second.boardId,initial.boardId);
+ assert.equal(second.tokens.length,0);
+ const listed=await s.listBoards();
+ assert.equal(listed.boards.length,2);
+ const switchedBack=await s.switchBoard(initial.boardId);
+ assert.equal(switchedBack.title,'Board One');
+ const restored=await s.restoreBackup(0);
+ assert.equal(restored.revision,2);
+ assert.equal(restored.drawings.length,0);
+ await s.deleteBoard(second.boardId);
+ assert.equal((await s.listBoards()).boards.length,1);
+});
+

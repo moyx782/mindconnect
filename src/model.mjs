@@ -67,3 +67,40 @@ export function getContext(doc,scope='selected') {
     drawings:doc.drawings.filter(d=>all||doc.selection.drawings.includes(d.id)),
     empty:tokens.length+edges.length+clusters.length+(all?doc.drawings.length:doc.selection.drawings.length)===0};
 }
+export function getSkillGuide(lang='zh') {
+  if (lang === 'en') {
+    return `# MindFlow AI Skill Guide
+1. Semantic Colors:
+   - yellow: Core idea / central anchor
+   - blue: Structure / direction / module
+   - green: Concrete action / deliverable
+   - purple: User pain point / deep insight
+   - red: Risk / open question to verify
+   - neutral: General note / detail
+2. Spatial Layout & Coordinates:
+   - Infinite 2D canvas around (0, 0). Card size ~160x44px.
+   - Keep horizontal column spacing dx >= 240px and vertical sibling spacing dy >= 76px to avoid overlap.
+   - A card (x, y) is inside a group (cluster) when (x+60, y+20) falls within [cluster.x..cluster.x+width, cluster.y..cluster.y+height].
+   - Leave padding when wrapping cards in a cluster: x = minX - 32, y = minY - 52, width >= (maxX - minX) + 200, height >= (maxY - minY) + 110.
+3. MCP & JSON Workflow:
+   - With MCP: read first (mindflow_get_context or mindflow_get_board) to get current revision, then batch mutations via mindflow_apply_operations with expectedRevision.
+   - Without MCP (Web JSON): output a valid MindFlow JSON object ({ "title", "tokens", "edges", "clusters", "drawings" }) with unique alphanumeric IDs (^[A-Za-z0-9_-]{1,100}$) so the user can import it directly via "Import".`;
+  }
+  return `# MindFlow · 自由白板 AI 技能指南 (Built-in Skill)
+1. 语义配色规范 (color):
+   - yellow (灵感黄): 核心点子、中心主题或锚点
+   - blue (核心蓝): 结构方向、模块划分或核心特性
+   - green (行动绿): 可执行方案、落地步骤或交付物
+   - purple (洞察紫): 用户痛点、深层原因或调研洞察
+   - red (质疑红): 风险点、阻塞项或待验证假设
+   - neutral (中性白/灰): 补充说明或背景记录
+2. 空间坐标与防重叠排版:
+   - 画布以 (0, 0) 为中心，单个词块约 160x44px。
+   - 左右分支列间距建议 dx >= 240px，上下同级词块间距建议 dy >= 76px，避免卡片重叠。
+   - 空间群组 (cluster) 归属判定：词块中心 (t.x + 60, t.y + 20) 落在群组矩形内即视为归属该群组。包裹词块时建议预留内边距：x = minX - 32, y = minY - 52, width >= (maxX - minX) + 200, height >= (maxY - minY) + 110。
+   - 显式关系请始终创建连线 (edges: { id, source, target, label })，label 保持 2-6 字精炼关系动词。
+3. AI 读写与协作方式:
+   - 本地 MCP 模式：先调用 mindflow_get_context 或 mindflow_get_board 获取当前 revision，再调用 mindflow_apply_operations 传入 expectedRevision 批量原子写入。
+   - 网页 JSON 导入模式：直接输出包含 { "title", "tokens", "edges", "clusters", "drawings" } 且 ID 唯一（仅含字母/数字/下划线/短横线）的 JSON，用户可直接点击白板顶栏「导入」一键生成白板。`;
+}
+

@@ -17,7 +17,7 @@ const wrapped=fn=>async(event,...args)=>{
 app.on('second-instance',()=>{if(win){win.restore();win.focus();}});
 app.whenReady().then(async()=>{
  const {Store,MAX_BYTES}=await import('./store.mjs');
- const {normalize,validateDocument,cleanSelection,getContext}=await import('./model.mjs');
+ const {normalize,validateDocument,cleanSelection,getContext,getSkillGuide}=await import('./model.mjs');
  store=new Store();
  try{await store.init();}catch(e){dialog.showErrorBox('MindFlow 无法读取白板 / Could not read board',`${e.message}\n请检查数据文件或从 backups 恢复。 / Check the file or restore a copy from backups.\n${store.file}`);app.quit();return;}
  win=new BrowserWindow({width:1440,height:960,minWidth:1060,minHeight:700,title:'MindFlow',backgroundColor:'#f8f8f7',webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true}});
@@ -30,6 +30,12 @@ app.whenReady().then(async()=>{
  })));
  ipcMain.handle('board:validate',wrapped(input=>normalize(input)));
  ipcMain.handle('board:context',wrapped(({document,scope})=>getContext(validateDocument(cleanSelection(document)),scope)));
+ ipcMain.handle('board:skill',wrapped((lang='zh')=>getSkillGuide(lang)));
+ ipcMain.handle('board:list',wrapped(()=>store.listBoards()));
+ ipcMain.handle('board:switch',wrapped(id=>store.switchBoard(id)));
+ ipcMain.handle('board:create',wrapped(opts=>store.createBoard(opts)));
+ ipcMain.handle('board:delete',wrapped(id=>store.deleteBoard(id)));
+ ipcMain.handle('board:restore',wrapped(rev=>store.restoreBackup(rev)));
  ipcMain.handle('board:open',wrapped(async()=>{
   const r=await dialog.showOpenDialog(win,{title:'打开 MindFlow JSON / Open MindFlow JSON',properties:['openFile'],filters:[{name:'MindFlow JSON',extensions:['json']}]});
   if(r.canceled)return null;
@@ -38,10 +44,18 @@ app.whenReady().then(async()=>{
   const choice=await dialog.showMessageBox(win,{type:'question',buttons:['取消 / Cancel','打开 / Open'],defaultId:0,cancelId:0,message:'用此文件替换当前白板？ / Replace the current board with this file?',detail:'当前版本会保留在自动备份中。 / The current revision will be backed up.'});
   return choice.response===1?doc:null;
  }));
- ipcMain.handle('file:export',wrapped(async({text,extension})=>{
-  if(!['json','md'].includes(extension)||typeof text!=='string'||Buffer.byteLength(text)>MAX_BYTES)throw new Error('无效导出内容 / Invalid export');
-  const r=await dialog.showSaveDialog(win,{title:'导出文件 / Export file',defaultPath:`MindFlow.${extension}`,filters:[{name:extension.toUpperCase(),extensions:[extension]}]});
-  if(r.canceled)return false;await fs.writeFile(r.filePath,text,'utf8');return true;
+ ipcMain.handle('file:export',wrapped(async({text,dataUrl,extension,filename})=>{
+  if(!['json','md','svg','png'].includes(extension))throw new Error('无效导出内容 / Invalid export');
+  const r=await dialog.showSaveDialog(win,{title:'导出文件 / Export file',defaultPath:filename||`MindFlow.${extension}`,filters:[{name:extension.toUpperCase(),extensions:[extension]}]});
+  if(r.canceled)return false;
+  if(extension==='png'&&typeof dataUrl==='string'){
+   const base64=dataUrl.replace(/^data:image\/png;base64,/,'');
+   const buf=Buffer.from(base64,'base64');
+   if(buf.byteLength>MAX_BYTES)throw new Error('无效导出内容 / Invalid export');
+   await fs.writeFile(r.filePath,buf);return true;
+  }
+  if(typeof text!=='string'||Buffer.byteLength(text)>MAX_BYTES)throw new Error('无效导出内容 / Invalid export');
+  await fs.writeFile(r.filePath,text,'utf8');return true;
  }));
  ipcMain.handle('mcp:info',wrapped(async({readOnly=false}={})=>({directory:store.directory,file:store.file,
   config:{mcpServers:{mindflow:{command:process.execPath,args:[path.join(app.getAppPath(),'src','mcp.mjs'),'--data-dir',store.directory,...(readOnly?['--read-only']:[])],env:{ELECTRON_RUN_AS_NODE:'1'}}}}

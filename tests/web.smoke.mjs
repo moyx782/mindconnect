@@ -46,7 +46,46 @@ try{
  // Two tabs share persisted revisions; incoming edits appear in an idle tab.
  const second=await context.newPage();await second.goto(base);await second.locator('.token-node').first().waitFor();await page.locator('#board-title-input').fill('Cross tab sync');await page.locator('#board-title-input').blur();
  await second.waitForFunction(()=>document.getElementById('board-title-input').value==='Cross tab sync');
+ // Test pen with thick strokeWidth and eraser tool
+ await page.locator('[data-stroke-width="6"]').click();
+ await page.locator('[data-tool="pen"]').click();
+ await page.mouse.move(400, 300);
+ await page.mouse.down();
+ await page.mouse.move(440, 320);
+ await page.mouse.move(480, 350);
+ await page.mouse.up();
+ assert.equal(await page.locator('#drawings-container .drawing-group').count(), 1);
+ await page.locator('[data-tool="eraser"]').click();
+ await page.mouse.move(440, 320);
+ await page.mouse.down();
+ await page.mouse.move(450, 325);
+ await page.mouse.up();
+ assert.equal(await page.locator('#drawings-container .drawing-group').count(), 0);
+ await page.locator('[data-tool="select"]').click();
+ // Test search panel and duplicate
+ await page.locator('#btn-search-toggle').click();
+ await page.locator('#search-input').fill('语音');
+ assert.ok((await page.locator('#search-count').textContent()).startsWith('1/'));
+ await page.locator('#btn-search-close').click();
+ await page.locator('#btn-toolbar-duplicate').click();
+ assert.equal(await page.locator('.token-node').count(), 8);
+ // Test SVG export preview
+ await page.locator('#btn-export-modal').click();
+ await page.locator('#tab-export-svg').click();
+ assert.ok((await page.locator('#export-preview-area').inputValue()).includes('<svg'));
+ await page.locator('#btn-close-export').click();
+ // Test multi-board manager modal
+ await page.locator('#btn-boards-modal').click();
+ await page.locator('#btn-new-blank-board').click();
+ await page.waitForFunction(()=>document.querySelectorAll('.token-node').length===0);
+ await page.locator('#btn-boards-modal').click();
+ await page.waitForFunction(()=>document.querySelectorAll('#boards-list-container > div').length===2);
+ await page.locator('#btn-close-boards').click();
+
  await page.setViewportSize({width:390,height:844});await page.locator('#btn-mcp').click();assert.ok(await page.locator('#mcp-dialog').isVisible());
  const bounds=await page.locator('#mcp-dialog').boundingBox();assert.ok(bounds.x>=0&&bounds.x+bounds.width<=391);
- assert.deepEqual(errors,[]);console.log('Web smoke PASS: load, edit, persistence, selected JSON, full JSON, legacy import, invalid input, two-tab sync, mobile dialog, CSP');
+ const skillDl=page.waitForEvent('download');await page.locator('#btn-download-skill').click();const skillFile=await (await skillDl).path();const skillText=await fs.readFile(skillFile,'utf8');assert.ok(skillText.includes('name: mindflow-whiteboard'));
+ assert.deepEqual(errors,[]);console.log('Web smoke PASS: load, edit, persistence, selected JSON, full JSON, legacy import, invalid input, two-tab sync, pen+eraser, search, duplicate, SVG export, multi-board, built-in AI skill, mobile dialog, CSP');
 }finally{await browser.close();server.close();}
+
+

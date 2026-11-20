@@ -71,24 +71,40 @@
     <!-- 2. 顶部极简克制工具栏 -->
     <header class="fixed top-4 left-4 right-4 z-40 flex items-center justify-between pointer-events-none">
       <!-- 左侧品牌与看板标题 -->
-      <div class="pointer-events-auto flex items-center gap-2.5 bg-white/85 dark:bg-zinc-900/85 backdrop-blur-md border border-stone-200/80 dark:border-zinc-800 px-3.5 py-2 rounded-2xl shadow-card">
-        <div class="w-6 h-6 rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white font-bold text-xs shadow-sm">
-          ✦
-        </div>
+      <div class="pointer-events-auto flex items-center gap-2 bg-white/85 dark:bg-zinc-900/85 backdrop-blur-md border border-stone-200/80 dark:border-zinc-800 px-3 py-1.5 rounded-2xl shadow-card">
+        <button id="btn-boards-modal" title="白板与历史版本管理 (Ctrl/Cmd + B)" class="flex items-center gap-1.5 px-2 py-1 rounded-xl text-xs font-medium text-stone-700 dark:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">
+          <div class="w-5 h-5 rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white font-bold text-[11px] shadow-sm">
+            ✦
+          </div>
+          <span class="hidden sm:inline">白板列表</span>
+          <svg class="w-3.5 h-3.5 text-stone-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+        </button>
+        <div class="w-px h-4 bg-stone-200 dark:bg-zinc-800"></div>
         <input
           id="board-title-input"
           type="text"
           value="未命名白板"
-          class="bg-transparent text-sm font-semibold text-stone-800 dark:text-zinc-100 outline-none w-36 sm:w-48 truncate focus:bg-stone-100 dark:focus:bg-zinc-800 px-1.5 py-0.5 rounded-lg transition"
+          class="bg-transparent text-sm font-semibold text-stone-800 dark:text-zinc-100 outline-none w-32 sm:w-44 truncate focus:bg-stone-100 dark:focus:bg-zinc-800 px-1.5 py-0.5 rounded-lg transition"
           title="点击修改白板标题"
         />
-        <span id="save-status" class="hidden sm:inline-flex items-center gap-1 text-[11px] text-stone-400 dark:text-zinc-500 pl-2 border-l border-stone-200 dark:border-zinc-800">
+        <span id="save-status" class="hidden md:inline-flex items-center gap-1 text-[11px] text-stone-400 dark:text-zinc-500 pl-2 border-l border-stone-200 dark:border-zinc-800">
           <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> 已保存
         </span>
       </div>
 
       <!-- 右侧操作区 -->
       <div class="pointer-events-auto flex items-center gap-1.5 bg-white/85 dark:bg-zinc-900/85 backdrop-blur-md border border-stone-200/80 dark:border-zinc-800 p-1.5 rounded-2xl shadow-card">
+        <button id="btn-search-toggle" title="搜索与定位词块 (Ctrl/Cmd + F)" class="p-2 rounded-xl text-stone-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"/></svg>
+        </button>
+
+        <button id="btn-auto-layout" title="自动整理白板布局" class="hidden md:flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-medium text-stone-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zm10 3h6m-3-3v6"/></svg>
+          <span>整理布局</span>
+        </button>
+
+        <div class="w-px h-4 bg-stone-200 dark:bg-zinc-700 mx-0.5"></div>
+
         <button id="btn-undo" title="撤销 (Ctrl/Cmd + Z)" class="p-2 rounded-xl text-stone-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-800 disabled:opacity-35 transition">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3"/></svg>
         </button>
@@ -120,7 +136,20 @@
       </div>
     </header>
 
-    <!-- 3. 语义整理悬浮工具栏（选中节点、群组或手绘图形时动态出现） -->
+    <!-- 2.5 画布内快速搜索浮层 (Ctrl/Cmd + F) -->
+    <div id="search-panel" class="hidden fixed top-16 right-4 z-40 w-80 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md border border-stone-200 dark:border-zinc-700 rounded-2xl shadow-float p-2.5 animate-pop">
+      <div class="flex items-center gap-1.5 bg-stone-100 dark:bg-zinc-800 px-2.5 py-1.5 rounded-xl">
+        <svg class="w-3.5 h-3.5 text-stone-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"/></svg>
+        <input id="search-input" type="text" placeholder="搜索词块、连线或群组..." class="w-full bg-transparent text-xs outline-none text-stone-800 dark:text-zinc-100 placeholder-stone-400" autocomplete="off" />
+        <span id="search-count" class="text-[11px] text-stone-400 dark:text-zinc-500 shrink-0 font-mono">0/0</span>
+        <button id="btn-search-prev" title="上一个 (Shift+Enter)" class="p-1 rounded-lg hover:bg-stone-200 dark:hover:bg-zinc-700 text-stone-500">↑</button>
+        <button id="btn-search-next" title="下一个 (Enter)" class="p-1 rounded-lg hover:bg-stone-200 dark:hover:bg-zinc-700 text-stone-500">↓</button>
+        <button id="btn-search-close" title="关闭 (Esc)" class="p-1 rounded-lg hover:bg-stone-200 dark:hover:bg-zinc-700 text-stone-500">✕</button>
+      </div>
+      <div id="search-results-list" class="mt-1.5 max-h-48 overflow-y-auto space-y-1 empty:hidden"></div>
+    </div>
+
+    <!-- 3. 语义整理悬浮工具栏（选中节点、群组、连线或手绘图形时动态出现） -->
     <div id="floating-toolbar" class="hidden fixed z-40 animate-pop bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md border border-stone-200 dark:border-zinc-700 px-2.5 py-1.5 rounded-2xl shadow-float flex items-center gap-1.5">
       <div id="toolbar-colors" class="flex items-center gap-1.5 px-1">
         <button data-color="neutral" title="白色或灰色" class="w-5 h-5 rounded-full bg-white border border-stone-300 hover:scale-110 transition"></button>
@@ -133,9 +162,26 @@
 
       <div id="toolbar-divider-1" class="w-px h-4 bg-stone-200 dark:bg-zinc-700 mx-0.5"></div>
 
+      <button id="btn-toolbar-edge-label" title="编辑连线关系标签" class="hidden items-center gap-1 px-2 py-1 rounded-xl text-xs font-medium text-stone-700 dark:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">
+        <span>编辑标签</span>
+      </button>
+
       <button id="btn-toolbar-branch" title="添加相连的词块 (Tab)" class="flex items-center gap-1 px-2 py-1 rounded-xl text-xs font-medium text-stone-700 dark:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">
         <span>+ 分支</span>
       </button>
+
+      <button id="btn-toolbar-duplicate" title="复制副本 (Ctrl/Cmd + D)" class="flex items-center gap-1 px-2 py-1 rounded-xl text-xs font-medium text-stone-700 dark:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">
+        <span>副本</span>
+      </button>
+
+      <div id="toolbar-align-group" class="hidden items-center gap-0.5">
+        <button id="btn-align-row" title="水平对齐并等距排列选中词块" class="px-2 py-1 rounded-xl text-xs font-medium text-stone-700 dark:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">
+          水平排列
+        </button>
+        <button id="btn-align-col" title="垂直对齐并等距排列选中词块" class="px-2 py-1 rounded-xl text-xs font-medium text-stone-700 dark:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">
+          垂直排列
+        </button>
+      </div>
 
       <button id="btn-toolbar-group" title="将所选词块编为一组 (Ctrl/Cmd + G)" class="flex items-center gap-1 px-2 py-1 rounded-xl text-xs font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/50 transition">
         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
@@ -161,7 +207,7 @@
         </button>
       </div>
 
-      <!-- 底部适应画布：选择 / 画笔 / 图形 / 直线 绘图工具坞 -->
+      <!-- 底部适应画布：选择 / 画笔 / 橡皮擦 / 图形 / 直线 绘图工具坞 -->
       <div id="drawing-dock" class="pointer-events-auto mx-auto flex items-center gap-1 bg-white/92 dark:bg-zinc-900/92 backdrop-blur-md border border-stone-200/90 dark:border-zinc-800 p-1.5 rounded-2xl shadow-float">
         <!-- 选择指针 (V) -->
         <button data-tool="select" title="选择与框选指针 (V)" class="tool-btn flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium bg-stone-900 dark:bg-zinc-100 text-white dark:text-zinc-900 transition">
@@ -173,6 +219,12 @@
         <button data-tool="pen" title="自由画笔涂鸦/圈点 (P)" class="tool-btn flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-stone-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
           <span class="hidden sm:inline">画笔</span>
+        </button>
+
+        <!-- 橡皮擦 (E) -->
+        <button data-tool="eraser" title="橡皮擦：划过或点击擦除笔迹与图形 (E)" class="tool-btn flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-stone-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10M5.5 13.5L14 5a2.121 2.121 0 013 0l2 2a2.121 2.121 0 010 3l-8.5 8.5a2 2 0 01-1.414.586H6.414a1 1 0 01-.707-.293l-1.207-1.207a1 1 0 010-1.414L5.5 13.5z"/></svg>
+          <span class="hidden sm:inline">橡皮擦</span>
         </button>
 
         <!-- 矩形框 (R) -->
@@ -192,6 +244,21 @@
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M5 19L19 5"/></svg>
           <span class="hidden sm:inline">直线</span>
         </button>
+
+        <div class="w-px h-4 bg-stone-200 dark:bg-zinc-700 mx-0.5"></div>
+
+        <!-- 笔触粗细切换 -->
+        <div id="dock-stroke-width" class="flex items-center gap-1 px-1" title="切换画笔与图形线条粗细">
+          <button data-stroke-width="2" title="细笔触" class="dock-width-btn w-5 h-5 rounded-lg flex items-center justify-center hover:bg-stone-100 dark:hover:bg-zinc-800 transition">
+            <span class="w-1.5 h-1.5 rounded-full bg-stone-600 dark:bg-zinc-300"></span>
+          </button>
+          <button data-stroke-width="3.5" title="标准笔触" class="dock-width-btn w-5 h-5 rounded-lg flex items-center justify-center bg-stone-200/80 dark:bg-zinc-700 transition">
+            <span class="w-2.5 h-2.5 rounded-full bg-stone-700 dark:bg-zinc-200"></span>
+          </button>
+          <button data-stroke-width="6" title="粗笔触" class="dock-width-btn w-5 h-5 rounded-lg flex items-center justify-center hover:bg-stone-100 dark:hover:bg-zinc-800 transition">
+            <span class="w-3.5 h-3.5 rounded-full bg-stone-700 dark:bg-zinc-200"></span>
+          </button>
+        </div>
 
         <div class="w-px h-4 bg-stone-200 dark:bg-zinc-700 mx-0.5"></div>
 
@@ -232,22 +299,26 @@
           <h3 class="text-base font-bold text-stone-800 dark:text-zinc-100">快捷键</h3>
           <button id="btn-close-shortcuts" class="p-1.5 rounded-xl text-stone-400 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">✕</button>
         </div>
-        <div class="space-y-3 text-xs text-stone-600 dark:text-zinc-300">
+        <div class="space-y-2.5 text-xs text-stone-600 dark:text-zinc-300">
           <div class="flex justify-between items-center py-1.5 border-b border-stone-100 dark:border-zinc-800">
             <span>添加词块</span>
             <kbd class="px-2 py-0.5 bg-stone-100 dark:bg-zinc-800 rounded-md font-mono text-[11px]">双击画布空白处</kbd>
           </div>
           <div class="flex justify-between items-center py-1.5 border-b border-stone-100 dark:border-zinc-800">
-            <span>切换工具（指针/画笔/矩形/圆/直线）</span>
-            <kbd class="px-2 py-0.5 bg-stone-100 dark:bg-zinc-800 rounded-md font-mono text-[11px]">V / P / R / O / L</kbd>
+            <span>切换工具（指针/画笔/橡皮擦/矩形/圆/直线）</span>
+            <kbd class="px-2 py-0.5 bg-stone-100 dark:bg-zinc-800 rounded-md font-mono text-[11px]">V / P / E / R / O / L</kbd>
           </div>
           <div class="flex justify-between items-center py-1.5 border-b border-stone-100 dark:border-zinc-800">
             <span>添加相连的词块</span>
             <kbd class="px-2 py-0.5 bg-stone-100 dark:bg-zinc-800 rounded-md font-mono text-[11px]">悬停点 + 或按 Tab</kbd>
           </div>
           <div class="flex justify-between items-center py-1.5 border-b border-stone-100 dark:border-zinc-800">
-            <span>连接词块</span>
-            <kbd class="px-2 py-0.5 bg-stone-100 dark:bg-zinc-800 rounded-md font-mono text-[11px]">拖拽卡片边缘蓝点</kbd>
+            <span>复制 / 粘贴 / 复制副本 / 全选</span>
+            <kbd class="px-2 py-0.5 bg-stone-100 dark:bg-zinc-800 rounded-md font-mono text-[11px]">Ctrl+C / V / D / A</kbd>
+          </div>
+          <div class="flex justify-between items-center py-1.5 border-b border-stone-100 dark:border-zinc-800">
+            <span>搜索词块 / 白板列表</span>
+            <kbd class="px-2 py-0.5 bg-stone-100 dark:bg-zinc-800 rounded-md font-mono text-[11px]">Ctrl+F / Ctrl+B</kbd>
           </div>
           <div class="flex justify-between items-center py-1.5 border-b border-stone-100 dark:border-zinc-800">
             <span>选择和分组</span>
@@ -255,7 +326,7 @@
           </div>
           <div class="flex justify-between items-center py-1.5 border-b border-stone-100 dark:border-zinc-800">
             <span>平移画布</span>
-            <kbd class="px-2 py-0.5 bg-stone-100 dark:bg-zinc-800 rounded-md font-mono text-[11px]">空格+拖拽 / 中键拖拽</kbd>
+            <kbd class="px-2 py-0.5 bg-stone-100 dark:bg-zinc-800 rounded-md font-mono text-[11px]">空格+拖拽 / 中键或右键拖拽</kbd>
           </div>
           <div class="flex justify-between items-center py-1.5">
             <span>撤销 / 重做 / 删除</span>
@@ -265,7 +336,35 @@
       </div>
     </div>
 
-    <!-- 6. 导出结构化大纲与 JSON 弹窗 -->
+    <!-- 5.5 多白板与历史版本管理弹窗 -->
+    <div id="modal-boards" class="hidden fixed inset-0 z-50 bg-black/30 backdrop-blur-xs flex items-center justify-center p-4">
+      <div class="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-3xl shadow-float max-w-lg w-full p-6 animate-pop flex flex-col max-h-[85vh]">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h3 class="text-base font-bold text-stone-800 dark:text-zinc-100">白板与历史快照</h3>
+            <p class="text-xs text-stone-500 dark:text-zinc-400 mt-0.5">切换、新建多张本地白板，或恢复当前白板的历史修订版本。</p>
+          </div>
+          <button id="btn-close-boards" class="p-1.5 rounded-xl text-stone-400 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">✕</button>
+        </div>
+
+        <div class="flex items-center gap-2 mb-3">
+          <button id="btn-new-blank-board" class="px-3 py-1.5 rounded-xl text-xs font-medium bg-stone-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:opacity-90 transition">
+            + 新建空白白板
+          </button>
+          <button id="btn-new-example-board" class="px-3 py-1.5 rounded-xl text-xs font-medium border border-stone-200 dark:border-zinc-700 text-stone-700 dark:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">
+            + 从示例新建
+          </button>
+        </div>
+
+        <div class="text-xs font-semibold text-stone-500 dark:text-zinc-400 mb-1.5">我的白板</div>
+        <div id="boards-list-container" class="space-y-1.5 overflow-y-auto max-h-48 pr-1 mb-4"></div>
+
+        <div class="text-xs font-semibold text-stone-500 dark:text-zinc-400 mb-1.5 pt-2 border-t border-stone-100 dark:border-zinc-800">当前白板历史快照</div>
+        <div id="backups-list-container" class="space-y-1.5 overflow-y-auto max-h-40 pr-1"></div>
+      </div>
+    </div>
+
+    <!-- 6. 导出结构化大纲、JSON 备份与 SVG/PNG 图片弹窗 -->
     <div id="modal-export" class="hidden fixed inset-0 z-50 bg-black/30 backdrop-blur-xs flex items-center justify-center p-4">
       <div class="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-3xl shadow-float max-w-xl w-full p-6 animate-pop flex flex-col max-h-[85vh]">
         <div class="flex items-center justify-between mb-3">
@@ -276,14 +375,15 @@
           <button id="btn-close-export" class="p-1.5 rounded-xl text-stone-400 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">✕</button>
         </div>
 
-        <div class="flex items-center gap-2 mb-3 bg-stone-100 dark:bg-zinc-800 p-1 rounded-xl w-fit">
+        <div class="flex flex-wrap items-center gap-1.5 mb-3 bg-stone-100 dark:bg-zinc-800 p-1 rounded-xl w-fit">
           <button id="tab-export-md" class="px-3 py-1 rounded-lg text-xs font-medium bg-white dark:bg-zinc-700 text-stone-800 dark:text-zinc-100 shadow-xs transition">Markdown 大纲</button>
           <button id="tab-export-json" class="px-3 py-1 rounded-lg text-xs font-medium text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-200 transition">JSON 完整备份</button>
+          <button id="tab-export-svg" class="px-3 py-1 rounded-lg text-xs font-medium text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-200 transition">SVG 矢量图</button>
         </div>
 
         <textarea id="export-preview-area" readonly class="w-full flex-1 min-h-[240px] p-3.5 rounded-2xl bg-stone-50 dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 text-xs font-mono text-stone-700 dark:text-zinc-300 outline-none resize-none leading-relaxed"></textarea>
 
-        <div class="flex items-center justify-between mt-4 pt-2 border-t border-stone-100 dark:border-zinc-800">
+        <div class="flex flex-wrap items-center justify-between gap-2 mt-4 pt-2 border-t border-stone-100 dark:border-zinc-800">
           <label class="cursor-pointer inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium text-stone-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
             <span>导入 JSON 备份</span>
@@ -291,7 +391,10 @@
           </label>
 
           <div class="flex items-center gap-2">
-            <button id="btn-copy-export" class="px-4 py-2 rounded-xl text-xs font-medium border border-stone-200 dark:border-zinc-700 text-stone-700 dark:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">
+            <button id="btn-export-png" class="px-3.5 py-2 rounded-xl text-xs font-medium border border-stone-200 dark:border-zinc-700 text-stone-700 dark:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">
+              导出 PNG 图片
+            </button>
+            <button id="btn-copy-export" class="px-3.5 py-2 rounded-xl text-xs font-medium border border-stone-200 dark:border-zinc-700 text-stone-700 dark:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">
               复制内容
             </button>
             <button id="btn-download-export" class="px-4 py-2 rounded-xl text-xs font-medium bg-stone-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:opacity-90 transition">
@@ -331,7 +434,7 @@
 <textarea id="mcp-config" readonly spellcheck="false" aria-label="MCP 配置"></textarea>
 <div class="mcp-actions"><button id="mcp-copy">复制 MCP 配置</button><button id="mcp-reveal">打开数据目录</button></div>
 <hr><h3>导出白板内容</h3><p>选择要交给 AI 的词块、连线和图形。</p>
-<div class="mcp-actions"><select id="context-scope" aria-label="导出范围"><option value="selected">仅当前选区</option><option value="all">整张白板</option></select><button id="btn-export-context">导出内容 JSON</button></div>
+<div class="mcp-actions" style="flex-wrap:wrap"><select id="context-scope" aria-label="导出范围"><option value="selected">仅当前选区</option><option value="all">整张白板</option></select><button id="btn-export-context">导出内容 JSON</button><button id="btn-copy-context">复制内容 JSON</button><button id="btn-copy-skill-prompt">复制 AI 技能与上下文</button><button id="btn-download-skill">下载 SKILL.md</button></div>
 <p class="mcp-note">需要在另一台设备恢复白板时，请使用「导出 → JSON 完整备份」。</p>
 </dialog><script src="ui/browser.js"></script><script src="ui/language.js"></script><script src="ui/app.js"></script></body>
 </html>

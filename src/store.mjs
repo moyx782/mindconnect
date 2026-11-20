@@ -47,4 +47,85 @@ export class Store {
       validateDocument(next);await this.atomicWrite(next);return next;
     });
   }
+  async listBackups() {
+    try{
+      const dir=path.join(this.directory,'backups');
+      const names=(await fs.readdir(dir)).filter(n=>/^revision-\d+\.json$/.test(n)).sort((a,b)=>Number(b.match(/\d+/)[0])-Number(a.match(/\d+/)[0]));
+      const out=[];
+      for(const n of names.slice(0,12)){
+        try{
+          const doc=JSON.parse(await fs.readFile(path.join(dir,n),'utf8'));
+          out.push({revision:doc.revision,updatedAt:doc.updatedAt,title:doc.title,tokenCount:doc.tokens?.length||0});
+        }catch{}
+      }
+      return out;
+    }catch{return [];}
+  }
+  async restoreBackup(revision) {
+    return this.locked(async()=>{
+      const current=await this.read();
+      const backupFile=path.join(this.directory,'backups',`revision-${Number(revision)}.json`);
+      const target=validateDocument(JSON.parse(await fs.readFile(backupFile,'utf8')));
+      const next={...target,boardId:current.boardId,revision:current.revision+1,updatedAt:new Date().toISOString()};
+      validateDocument(next);await this.atomicWrite(next);return next;
+    });
+  }
+  async listBoards() {
+    const current=await this.read();
+    const boardsDir=path.join(this.directory,'boards');
+    await fs.mkdir(boardsDir,{recursive:true,mode:0o700});
+    await fs.writeFile(path.join(boardsDir,`${current.boardId}.json`),JSON.stringify(current,null,2),'utf8').catch(()=>{});
+    const files=(await fs.readdir(boardsDir).catch(()=>[])).filter(f=>f.endsWith('.json'));
+    const boards=[];
+    for(const f of files){
+      try{
+        const doc=JSON.parse(await fs.readFile(path.join(boardsDir,f),'utf8'));
+        boards.push({boardId:doc.boardId,title:doc.title,revision:doc.revision,updatedAt:doc.updatedAt,tokenCount:doc.tokens?.length||0});
+      }catch{}
+    }
+    if(!boards.some(b=>b.boardId===current.boardId)){
+      boards.unshift({boardId:current.boardId,title:current.title,revision:current.revision,updatedAt:current.updatedAt,tokenCount:current.tokens?.length||0});
+    }
+    return {activeBoardId:current.boardId,boards,backups:await this.listBackups()};
+  }
+  async switchBoard(targetBoardId) {
+    return this.locked(async()=>{
+      const current=await this.read();
+      if(current.boardId===targetBoardId)return current;
+      const boardsDir=path.join(this.directory,'boards');
+      await fs.mkdir(boardsDir,{recursive:true,mode:0o700});
+      await fs.writeFile(path.join(boardsDir,`${current.boardId}.json`),JSON.stringify(current,null,2),'utf8');
+      const targetPath=path.join(boardsDir,`${targetBoardId}.json`);
+      const targetDoc=validateDocument(JSON.parse(await fs.readFile(targetPath,'utf8')));
+      await this.atomicWrite(targetDoc,false);
+      return targetDoc;
+    });
+  }
+  async createBoard({title:customTitle,fromExample=false}={}) {
+    return this.locked(async()=>{
+      const current=await this.read();
+      const boardsDir=path.join(this.directory,'boards');
+      await fs.mkdir(boardsDir,{recursive:true,mode:0o700});
+      await fs.writeFile(path.join(boardsDir,`${current.boardId}.json`),JSON.stringify(current,null,2),'utf8');
+      const seed=fromExample?JSON.parse(await fs.readFile(new URL('../examples/mindflow-board.json',import.meta.url),'utf8')):{title:customTitle||'未命名白板',tokens:[],edges:[],clusters:[],drawings:[]};
+      if(customTitle)seed.title=customTitle;
+      const doc=normalize({title:seed.title,tokens:seed.tokens,edges:seed.edges,clusters:seed.clusters,drawings:seed.drawings});
+      await fs.writeFile(path.join(boardsDir,`${doc.boardId}.json`),JSON.stringify(doc,null,2),'utf8');
+      await this.atomicWrite(doc,false);
+      return doc;
+    });
+  }
+  async deleteBoard(targetBoardId) {
+    const info=await this.listBoards();
+    if(info.boards.length<=1)throw new Error('至少保留一张白板 / Keep at least one board');
+    const boardsDir=path.join(this.directory,'boards');
+    await fs.unlink(path.join(boardsDir,`${targetBoardId}.json`)).catch(()=>{});
+    const current=await this.read();
+    if(current.boardId===targetBoardId){
+      const nextBoard=info.boards.find(b=>b.boardId!==targetBoardId);
+      return this.switchBoard(nextBoard.boardId);
+    }
+    return current;
+  }
 }
+

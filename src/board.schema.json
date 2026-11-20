@@ -189,6 +189,11 @@
               "type": {
                 "const": "pen"
               },
+              "strokeWidth": {
+                "type": "number",
+                "minimum": 1,
+                "maximum": 24
+              },
               "points": {
                 "type": "array",
                 "maxItems": 100000,
@@ -243,6 +248,11 @@
               "type": {
                 "const": "rect"
               },
+              "strokeWidth": {
+                "type": "number",
+                "minimum": 1,
+                "maximum": 24
+              },
               "x": {
                 "type": "number",
                 "minimum": -10000000,
@@ -296,6 +306,11 @@
               "type": {
                 "const": "ellipse"
               },
+              "strokeWidth": {
+                "type": "number",
+                "minimum": 1,
+                "maximum": 24
+              },
               "x": {
                 "type": "number",
                 "minimum": -10000000,
@@ -348,6 +363,11 @@
               },
               "type": {
                 "const": "line"
+              },
+              "strokeWidth": {
+                "type": "number",
+                "minimum": 1,
+                "maximum": 24
               },
               "x1": {
                 "type": "number",

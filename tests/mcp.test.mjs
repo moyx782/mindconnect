@@ -13,9 +13,12 @@ async function connect(t,readOnly=false){
  await client.connect(transport);t.after(async()=>{await client.close();await rm(dir,{recursive:true,force:true});assert.equal(stderr,'');});return client;
 }
 const data=r=>r.structuredContent||JSON.parse(r.content[0].text);
-test('official MCP client: initialize, tools, resources, search, write, conflicts and selection',async t=>{
- const c=await connect(t);assert.equal((await c.listTools()).tools.length,6);assert.equal((await c.listResources()).resources.length,3);
+test('official MCP client: initialize, tools, resources, prompts, search, write, conflicts and selection',async t=>{
+ const c=await connect(t);assert.equal((await c.listTools()).tools.length,6);assert.equal((await c.listResources()).resources.length,4);
  const read=await c.readResource({uri:'mindflow://schema'});assert.equal(JSON.parse(read.contents[0].text).properties.schemaVersion.const,1);
+ const skillRes=await c.readResource({uri:'mindflow://skill'});assert.ok(skillRes.contents[0].text.includes('MindFlow'));
+ const prompts=(await c.listPrompts()).prompts;assert.equal(prompts.length,1);assert.equal(prompts[0].name,'mindflow-whiteboard');
+ const promptMsg=await c.getPrompt({name:'mindflow-whiteboard',arguments:{scope:'all'}});assert.ok(promptMsg.messages[0].content.text.includes('mindflow-context'));
  assert.equal(data(await c.callTool({name:'mindflow_get_context',arguments:{}})).empty,true);
  let d=data(await c.callTool({name:'mindflow_get_board',arguments:{}}));
  let r=await c.callTool({name:'mindflow_apply_operations',arguments:{expectedRevision:d.revision,operations:[{action:'upsert',collection:'tokens',item:{id:'agent_node',text:'Agent 测试内容',x:100,y:100,color:'blue'}}]}});
@@ -31,3 +34,4 @@ test('read-only server advertises no mutations and rejects mutation calls',async
  const c=await connect(t,true);const tools=(await c.listTools()).tools;assert.equal(tools.length,3);assert.ok(tools.every(t=>t.annotations.readOnlyHint));
  const r=await c.callTool({name:'mindflow_rename_board',arguments:{expectedRevision:0,title:'bad'}});assert.equal(r.isError,true);
 });
+

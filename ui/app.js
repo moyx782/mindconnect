@@ -36,9 +36,20 @@
         drawings: []  // { id, type: 'pen'|'rect'|'ellipse'|'line', color, points?, x?, y?, width?, height?, x1?, y1?, x2?, y2? }
       };
 
-      // 当前工具与默认画笔颜色
-      let activeTool = 'select'; // 'select' | 'pen' | 'rect' | 'ellipse' | 'line'
+      // 当前工具、默认画笔颜色与粗细
+      let activeTool = 'select'; // 'select' | 'pen' | 'eraser' | 'rect' | 'ellipse' | 'line'
       let activeStrokeColor = 'neutral';
+      let activeStrokeWidth = 3.5;
+
+      // 内部剪贴板与搜索状态
+      let internalClipboard = null;
+      let pasteStepCount = 0;
+      let searchMatches = [];
+      let searchActiveIndex = -1;
+      let activeTouchPointers = new Map();
+      let pinchStartDist = 0;
+      let pinchStartScale = 1;
+      let pinchStartCenter = null;
 
       // 语义颜色映射（供 SVG 画笔与图形使用）
       const STROKE_PALETTE = {
@@ -72,7 +83,7 @@
 
       // 交互状态机
       let interaction = {
-        mode: 'idle', // 'idle' | 'pan' | 'marquee' | 'drag-items' | 'drag-cluster' | 'resize-cluster' | 'connect-edge' | 'drawing'
+        mode: 'idle', // 'idle' | 'pan' | 'marquee' | 'drag-items' | 'drag-cluster' | 'resize-cluster' | 'connect-edge' | 'drawing' | 'erasing'
         startClientX: 0,
         startClientY: 0,
         startWorldX: 0,
@@ -88,6 +99,7 @@
         initialClusterRect: null,
         connectSourceId: null,
         draftDrawing: null, // 正在绘制的临时图形/笔迹
+        erasedInStroke: false,
         hasMoved: false,
         pendingCreateWorldPos: null,
         pendingParentTokenId: null
@@ -134,9 +146,17 @@
           }
         });
 
+        if (tool !== 'eraser') {
+          tempDrawingContainerEl.innerHTML = '';
+        }
+
         if (tool === 'select') {
           viewportEl.classList.remove('drawing-mode-active');
           viewportEl.style.cursor = isSpacePressed ? 'grab' : 'default';
+        } else if (tool === 'eraser') {
+          clearSelection();
+          viewportEl.classList.add('drawing-mode-active');
+          viewportEl.style.cursor = 'cell';
         } else {
           clearSelection();
           viewportEl.classList.add('drawing-mode-active');
@@ -285,7 +305,7 @@
         const before=signature(snapshot());
         try{
           const doc=await window.desktop.read();
-          if(signature(snapshot())===before && !saving && doc.revision!==documentMeta.revision) {
+          if(signature(snapshot())===before && !saving && (doc.boardId!==documentMeta.boardId || doc.revision!==documentMeta.revision)) {
             acceptDocument(doc); showToast(tr('已载入最新版本'));
           }
         }catch(error){ showFailure(error); }finally{polling=false;}
@@ -336,24 +356,123 @@
         return { x: 0, y: 0, width: 10, height: 10 };
       }
 
+      // 将画笔采样点拟合成平滑二次贝塞尔曲线路径
+      function buildSmoothPenPath(points) {
+        if (!points || points.length === 0) return '';
+        if (points.length === 1) {
+          const p = points[0];
+          return `M ${p.x.toFixed(1)} ${p.y.toFixed(1)} L ${(p.x + 0.5).toFixed(1)} ${(p.y + 0.5).toFixed(1)}`;
+        }
+        if (points.length === 2) {
+          return `M ${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)} L ${points[1].x.toFixed(1)} ${points[1].y.toFixed(1)}`;
+        }
+        let d = `M ${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`;
+        for (let i = 1; i < points.length - 1; i++) {
+          const midX = (points[i].x + points[i + 1].x) / 2;
+          const midY = (points[i].y + points[i + 1].y) / 2;
+          d += ` Q ${points[i].x.toFixed(1)} ${points[i].y.toFixed(1)}, ${midX.toFixed(1)} ${midY.toFixed(1)}`;
+        }
+        const last = points[points.length - 1];
+        d += ` L ${last.x.toFixed(1)} ${last.y.toFixed(1)}`;
+        return d;
+      }
+
+      // 点到线段的最短距离（供橡皮擦精确碰撞检测使用）
+      function distToSegment(px, py, x1, y1, x2, y2) {
+        const l2 = (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1);
+        if (l2 === 0) return Math.hypot(px - x1, py - y1);
+        let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2;
+        t = Math.max(0, Math.min(1, t));
+        return Math.hypot(px - (x1 + t * (x2 - x1)), py - (y1 + t * (y2 - y1)));
+      }
+
+      // 检测橡皮擦世界坐标 (wx, wy) 是否命中某个手绘笔迹或图形
+      function hitTestDrawingForEraser(d, wx, wy, radiusWorld) {
+        const tol = radiusWorld + (d.strokeWidth || 3) / 2;
+        if (d.type === 'pen' && Array.isArray(d.points) && d.points.length > 0) {
+          if (d.points.length === 1) {
+            return Math.hypot(wx - d.points[0].x, wy - d.points[0].y) <= tol;
+          }
+          for (let i = 0; i < d.points.length - 1; i++) {
+            if (distToSegment(wx, wy, d.points[i].x, d.points[i].y, d.points[i + 1].x, d.points[i + 1].y) <= tol) {
+              return true;
+            }
+          }
+          return false;
+        }
+        if (d.type === 'line') {
+          return distToSegment(wx, wy, d.x1, d.y1, d.x2, d.y2) <= tol;
+        }
+        if (d.type === 'rect') {
+          const inX = wx >= d.x - tol && wx <= d.x + d.width + tol;
+          const inY = wy >= d.y - tol && wy <= d.y + d.height + tol;
+          return inX && inY;
+        }
+        if (d.type === 'ellipse') {
+          const cx = d.x + d.width / 2;
+          const cy = d.y + d.height / 2;
+          const rx = Math.max(4, d.width / 2) + tol;
+          const ry = Math.max(4, d.height / 2) + tol;
+          const norm = ((wx - cx) * (wx - cx)) / (rx * rx) + ((wy - cy) * (wy - cy)) / (ry * ry);
+          return norm <= 1;
+        }
+        return false;
+      }
+
+      // 渲染橡皮擦圆环指示器并执行擦除
+      function updateEraserAt(wx, wy, shouldErase) {
+        const radiusWorld = 14 / viewport.scale;
+        tempDrawingContainerEl.innerHTML = '';
+        const indicator = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        indicator.setAttribute('cx', wx);
+        indicator.setAttribute('cy', wy);
+        indicator.setAttribute('r', radiusWorld);
+        indicator.setAttribute('fill', shouldErase ? 'rgba(244, 63, 94, 0.18)' : 'rgba(120, 113, 108, 0.12)');
+        indicator.setAttribute('stroke', shouldErase ? '#f43f5e' : '#78716c');
+        indicator.setAttribute('stroke-width', (1.5 / viewport.scale).toString());
+        indicator.setAttribute('class', 'pointer-events-none');
+        tempDrawingContainerEl.appendChild(indicator);
+
+        const hitIds = new Set();
+        state.drawings.forEach(d => {
+          if (hitTestDrawingForEraser(d, wx, wy, radiusWorld)) {
+            hitIds.add(d.id);
+          }
+        });
+
+        if (shouldErase && hitIds.size > 0) {
+          if (!interaction.erasedInStroke) {
+            pushHistory();
+            interaction.erasedInStroke = true;
+          }
+          state.drawings = state.drawings.filter(d => !hitIds.has(d.id));
+          renderDrawings();
+        } else {
+          drawingsContainerEl.querySelectorAll('.drawing-group').forEach(g => {
+            g.classList.toggle('eraser-hover', hitIds.has(g.dataset.id));
+          });
+        }
+      }
+
       // 创建单个手绘/图形 SVG 节点
       function buildDrawingSvgElement(d, isDraft = false) {
         const isDark = document.documentElement.classList.contains('dark');
         const palette = STROKE_PALETTE[d.color || 'neutral'] || STROKE_PALETTE.neutral;
         const strokeColor = isDark ? palette.dark : palette.light;
         const fillColor = isDark ? palette.fillDark : palette.fillLight;
+        const sw = d.strokeWidth || 3;
 
         const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         g.setAttribute('class', `drawing-group ${!isDraft && selection.drawings.has(d.id) ? 'selected' : ''}`);
         if (!isDraft) g.dataset.id = d.id;
 
         if (d.type === 'pen' && d.points && d.points.length > 0) {
-          const pathData = d.points.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+          const pathData = buildSmoothPenPath(d.points);
           const visiblePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
           visiblePath.setAttribute('d', pathData);
           visiblePath.setAttribute('fill', 'none');
           visiblePath.setAttribute('stroke', strokeColor);
-          visiblePath.setAttribute('stroke-width', '3');
+          visiblePath.setAttribute('stroke-width', String(sw));
           visiblePath.setAttribute('stroke-linecap', 'round');
           visiblePath.setAttribute('stroke-linejoin', 'round');
           visiblePath.setAttribute('class', 'drawing-outline pointer-events-none');
@@ -374,7 +493,7 @@
           rect.setAttribute('rx', '12');
           rect.setAttribute('fill', fillColor);
           rect.setAttribute('stroke', strokeColor);
-          rect.setAttribute('stroke-width', '2.5');
+          rect.setAttribute('stroke-width', String(d.strokeWidth || 2.5));
           rect.setAttribute('class', `drawing-outline ${isDraft ? 'pointer-events-none' : 'drawing-shape-fill'}`);
           g.appendChild(rect);
         } else if (d.type === 'ellipse') {
@@ -389,7 +508,7 @@
           ellipse.setAttribute('ry', ry);
           ellipse.setAttribute('fill', fillColor);
           ellipse.setAttribute('stroke', strokeColor);
-          ellipse.setAttribute('stroke-width', '2.5');
+          ellipse.setAttribute('stroke-width', String(d.strokeWidth || 2.5));
           ellipse.setAttribute('class', `drawing-outline ${isDraft ? 'pointer-events-none' : 'drawing-shape-fill'}`);
           g.appendChild(ellipse);
         } else if (d.type === 'line') {
@@ -399,7 +518,7 @@
           line.setAttribute('x2', d.x2);
           line.setAttribute('y2', d.y2);
           line.setAttribute('stroke', strokeColor);
-          line.setAttribute('stroke-width', '3');
+          line.setAttribute('stroke-width', String(sw));
           line.setAttribute('stroke-linecap', 'round');
           line.setAttribute('class', 'drawing-outline pointer-events-none');
           g.appendChild(line);
@@ -474,7 +593,8 @@
         clustersLayerEl.innerHTML = '';
         state.clusters.forEach(cluster => {
           const box = document.createElement('div');
-          box.className = `cluster-box ${selection.clusters.has(cluster.id) ? 'selected' : ''}`;
+          const colorCls = cluster.color && cluster.color !== 'neutral' ? `cluster-theme-${cluster.color}` : '';
+          box.className = `cluster-box ${colorCls} ${selection.clusters.has(cluster.id) ? 'selected' : ''}`;
           box.dataset.id = cluster.id;
           box.style.left = `${cluster.x}px`;
           box.style.top = `${cluster.y}px`;
@@ -918,10 +1038,27 @@
         const totalSelected = selection.tokens.size + selection.edges.size + selection.clusters.size + selection.drawings.size;
         if (totalSelected > 0) {
           floatingToolbarEl.classList.remove('hidden');
-          const hasTokensOrDrawings = selection.tokens.size > 0 || selection.drawings.size > 0;
-          document.getElementById('toolbar-colors').classList.toggle('hidden', !hasTokensOrDrawings);
-          document.getElementById('toolbar-divider-1').classList.toggle('hidden', !hasTokensOrDrawings);
+          const hasColorables = selection.tokens.size > 0 || selection.drawings.size > 0 || selection.clusters.size > 0;
+          const canDuplicate = selection.tokens.size > 0 || selection.drawings.size > 0 || selection.clusters.size > 0;
+          document.getElementById('toolbar-colors').classList.toggle('hidden', !hasColorables);
+          document.getElementById('toolbar-divider-1').classList.toggle('hidden', !hasColorables);
+
+          const edgeLabelBtn = document.getElementById('btn-toolbar-edge-label');
+          if (edgeLabelBtn) {
+            edgeLabelBtn.classList.toggle('hidden', selection.edges.size !== 1);
+            edgeLabelBtn.classList.toggle('flex', selection.edges.size === 1);
+          }
+
           document.getElementById('btn-toolbar-branch').classList.toggle('hidden', selection.tokens.size !== 1);
+          const dupBtn = document.getElementById('btn-toolbar-duplicate');
+          if (dupBtn) dupBtn.classList.toggle('hidden', !canDuplicate);
+
+          const alignGroup = document.getElementById('toolbar-align-group');
+          if (alignGroup) {
+            alignGroup.classList.toggle('hidden', selection.tokens.size < 2);
+            alignGroup.classList.toggle('flex', selection.tokens.size >= 2);
+          }
+
           document.getElementById('btn-toolbar-group').classList.toggle('hidden', selection.tokens.size === 0);
           updateFloatingToolbarPosition();
         } else {
@@ -1135,6 +1272,336 @@
         saveToLocalStorage();
       }
 
+      // ================= 复制 / 粘贴 / 复制副本 / 全选 =================
+      function captureSelectionPayload() {
+        const tokenIds = new Set(selection.tokens);
+        const tokens = state.tokens.filter(t => tokenIds.has(t.id)).map(t => cloneState(t));
+        const edges = state.edges.filter(e => tokenIds.has(e.source) && tokenIds.has(e.target)).map(e => cloneState(e));
+        const clusters = state.clusters.filter(c => selection.clusters.has(c.id)).map(c => cloneState(c));
+        const drawings = state.drawings.filter(d => selection.drawings.has(d.id)).map(d => cloneState(d));
+        if (tokens.length === 0 && clusters.length === 0 && drawings.length === 0) return null;
+        return { tokens, edges, clusters, drawings };
+      }
+
+      function copySelectedItems() {
+        const payload = captureSelectionPayload();
+        if (!payload) return false;
+        internalClipboard = payload;
+        pasteStepCount = 0;
+        showToast(tr('已复制选区'));
+        return true;
+      }
+
+      function insertClonedPayload(payload, offsetX = 28, offsetY = 28) {
+        if (!payload) return false;
+        pushHistory();
+        const idMap = new Map();
+        const newTokens = [];
+        const newClusters = [];
+        const newDrawings = [];
+
+        payload.tokens.forEach(t => {
+          const newId = uid('tk');
+          idMap.set(t.id, newId);
+          newTokens.push({ ...cloneState(t), id: newId, x: Math.round(t.x + offsetX), y: Math.round(t.y + offsetY) });
+        });
+
+        payload.edges.forEach(e => {
+          const sId = idMap.get(e.source);
+          const tId = idMap.get(e.target);
+          if (sId && tId) {
+            state.edges.push({ id: uid('ed'), source: sId, target: tId, label: e.label || '' });
+          }
+        });
+
+        payload.clusters.forEach(c => {
+          const newId = uid('cl');
+          newClusters.push({ ...cloneState(c), id: newId, x: Math.round(c.x + offsetX), y: Math.round(c.y + offsetY) });
+        });
+
+        payload.drawings.forEach(d => {
+          const newId = uid('dr');
+          const copy = cloneState(d);
+          copy.id = newId;
+          if (copy.type === 'rect' || copy.type === 'ellipse') {
+            copy.x = Math.round(copy.x + offsetX);
+            copy.y = Math.round(copy.y + offsetY);
+          } else if (copy.type === 'line') {
+            copy.x1 = Math.round(copy.x1 + offsetX);
+            copy.y1 = Math.round(copy.y1 + offsetY);
+            copy.x2 = Math.round(copy.x2 + offsetX);
+            copy.y2 = Math.round(copy.y2 + offsetY);
+          } else if (copy.type === 'pen' && Array.isArray(copy.points)) {
+            copy.points = copy.points.map(p => ({ x: Math.round(p.x + offsetX), y: Math.round(p.y + offsetY) }));
+          }
+          newDrawings.push(copy);
+        });
+
+        state.tokens.push(...newTokens);
+        state.clusters.push(...newClusters);
+        state.drawings.push(...newDrawings);
+
+        clearSelection();
+        newTokens.forEach(t => selection.tokens.add(t.id));
+        newClusters.forEach(c => selection.clusters.add(c.id));
+        newDrawings.forEach(d => selection.drawings.add(d.id));
+
+        renderAll();
+        saveToLocalStorage();
+        return true;
+      }
+
+      function pasteClipboardItems() {
+        if (!internalClipboard) return false;
+        pasteStepCount += 1;
+        const offset = 28 * pasteStepCount;
+        if (insertClonedPayload(internalClipboard, offset, offset)) {
+          showToast(tr('已粘贴选区'));
+          return true;
+        }
+        return false;
+      }
+
+      function duplicateSelectedItems() {
+        const payload = captureSelectionPayload();
+        if (!payload) return false;
+        if (insertClonedPayload(payload, 28, 28)) {
+          showToast(tr('已创建副本'));
+          return true;
+        }
+        return false;
+      }
+
+      function selectAllItems() {
+        state.tokens.forEach(t => selection.tokens.add(t.id));
+        state.edges.forEach(e => selection.edges.add(e.id));
+        state.clusters.forEach(c => selection.clusters.add(c.id));
+        state.drawings.forEach(d => selection.drawings.add(d.id));
+        updateSelectionVisuals();
+      }
+
+      // ================= 自动整理布局与对齐排列 =================
+      function alignSelectedTokens(direction = 'row') {
+        if (selection.tokens.size < 2) return;
+        pushHistory();
+        const selectedTokens = state.tokens.filter(t => selection.tokens.has(t.id));
+        if (direction === 'row') {
+          selectedTokens.sort((a, b) => a.x - b.x);
+          const avgY = Math.round(selectedTokens.reduce((acc, t) => acc + t.y, 0) / selectedTokens.length);
+          let curX = selectedTokens[0].x;
+          selectedTokens.forEach(t => {
+            const el = tokensLayerEl.querySelector(`[data-id="${t.id}"]`);
+            const w = el ? el.offsetWidth : 136;
+            t.x = Math.round(curX);
+            t.y = avgY;
+            curX += w + 28;
+          });
+        } else {
+          selectedTokens.sort((a, b) => a.y - b.y);
+          const avgX = Math.round(selectedTokens.reduce((acc, t) => acc + t.x, 0) / selectedTokens.length);
+          let curY = selectedTokens[0].y;
+          selectedTokens.forEach(t => {
+            const el = tokensLayerEl.querySelector(`[data-id="${t.id}"]`);
+            const h = el ? el.offsetHeight : 44;
+            t.x = avgX;
+            t.y = Math.round(curY);
+            curY += h + 22;
+          });
+        }
+        renderAll();
+        saveToLocalStorage();
+        showToast(tr('已对齐选中词块'));
+      }
+
+      function autoLayoutBoard() {
+        if (state.tokens.length === 0) return;
+        pushHistory();
+
+        const targetTokens = selection.tokens.size >= 2
+          ? state.tokens.filter(t => selection.tokens.has(t.id))
+          : state.tokens;
+        const targetSet = new Set(targetTokens.map(t => t.id));
+
+        const inDegree = new Map();
+        const children = new Map();
+        targetTokens.forEach(t => {
+          inDegree.set(t.id, 0);
+          children.set(t.id, []);
+        });
+
+        state.edges.forEach(e => {
+          if (targetSet.has(e.source) && targetSet.has(e.target)) {
+            children.get(e.source).push(e.target);
+            inDegree.set(e.target, (inDegree.get(e.target) || 0) + 1);
+          }
+        });
+
+        const roots = targetTokens.filter(t => (inDegree.get(t.id) || 0) === 0);
+        const startX = Math.min(...targetTokens.map(t => t.x), -220);
+        const startY = Math.min(...targetTokens.map(t => t.y), -160);
+
+        const visited = new Set();
+        const levels = new Map();
+        const queue = [];
+
+        (roots.length > 0 ? roots : [targetTokens[0]]).forEach(r => {
+          queue.push({ id: r.id, level: 0 });
+          visited.add(r.id);
+        });
+
+        while (queue.length > 0) {
+          const { id, level } = queue.shift();
+          if (!levels.has(level)) levels.set(level, []);
+          levels.get(level).push(id);
+          (children.get(id) || []).forEach(chId => {
+            if (!visited.has(chId)) {
+              visited.add(chId);
+              queue.push({ id: chId, level: level + 1 });
+            }
+          });
+        }
+
+        targetTokens.forEach(t => {
+          if (!visited.has(t.id)) {
+            visited.add(t.id);
+            if (!levels.has(0)) levels.set(0, []);
+            levels.get(0).push(t.id);
+          }
+        });
+
+        const colGap = 240;
+        const rowGap = 76;
+        levels.forEach((ids, lvl) => {
+          const totalH = (ids.length - 1) * rowGap;
+          ids.forEach((id, idx) => {
+            const tok = state.tokens.find(t => t.id === id);
+            if (tok) {
+              tok.x = Math.round(startX + lvl * colGap);
+              tok.y = Math.round(startY + idx * rowGap - totalH / 2 + 120);
+            }
+          });
+        });
+
+        // 同步吸附包裹群组的边界
+        if (selection.tokens.size < 2 && state.clusters.length > 0) {
+          state.clusters.forEach((c, idx) => {
+            c.x = Math.round(startX + idx * 320 - 30);
+            c.y = Math.round(startY - 60);
+          });
+        }
+
+        renderAll();
+        fitViewToContent();
+        saveToLocalStorage();
+        showToast(tr('已自动整理白板布局'));
+      }
+
+      // ================= 画布内快速搜索与定位 (Ctrl/Cmd + F) =================
+      const searchPanelEl = document.getElementById('search-panel');
+      const searchInputEl = document.getElementById('search-input');
+      const searchCountEl = document.getElementById('search-count');
+      const searchResultsListEl = document.getElementById('search-results-list');
+
+      function clearSearchHighlights() {
+        tokensLayerEl.querySelectorAll('.token-node.search-focus').forEach(el => el.classList.remove('search-focus'));
+      }
+
+      function performSearch(query) {
+        clearSearchHighlights();
+        const q = (query || '').trim().toLowerCase();
+        searchMatches = [];
+        searchActiveIndex = -1;
+        searchResultsListEl.innerHTML = '';
+
+        if (!q) {
+          searchCountEl.textContent = '0/0';
+          return;
+        }
+
+        state.tokens.forEach(t => {
+          if (t.text.toLowerCase().includes(q)) {
+            searchMatches.push({ type: 'token', id: t.id, label: t.text, x: t.x, y: t.y });
+          }
+        });
+        state.clusters.forEach(c => {
+          if (c.title.toLowerCase().includes(q)) {
+            searchMatches.push({ type: 'cluster', id: c.id, label: `📁 ${c.title}`, x: c.x + c.width / 2, y: c.y + c.height / 2 });
+          }
+        });
+        state.edges.forEach(e => {
+          if (e.label && e.label.toLowerCase().includes(q)) {
+            const s = state.tokens.find(t => t.id === e.source);
+            const t = state.tokens.find(tok => tok.id === e.target);
+            const mx = s && t ? (s.x + t.x) / 2 : 0;
+            const my = s && t ? (s.y + t.y) / 2 : 0;
+            searchMatches.push({ type: 'edge', id: e.id, label: `🔗 ${e.label}`, x: mx, y: my });
+          }
+        });
+
+        if (searchMatches.length === 0) {
+          searchCountEl.textContent = '0/0';
+          return;
+        }
+
+        searchMatches.forEach((m, idx) => {
+          const itemBtn = document.createElement('button');
+          itemBtn.className = 'w-full text-left px-2.5 py-1.5 rounded-xl text-xs text-stone-700 dark:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-800 truncate block transition';
+          itemBtn.textContent = m.label;
+          itemBtn.addEventListener('click', () => {
+            focusSearchMatch(idx);
+          });
+          searchResultsListEl.appendChild(itemBtn);
+        });
+
+        focusSearchMatch(0);
+      }
+
+      function focusSearchMatch(index) {
+        if (searchMatches.length === 0) return;
+        searchActiveIndex = (index + searchMatches.length) % searchMatches.length;
+        searchCountEl.textContent = `${searchActiveIndex + 1}/${searchMatches.length}`;
+
+        const match = searchMatches[searchActiveIndex];
+        clearSelection();
+        clearSearchHighlights();
+
+        if (match.type === 'token') {
+          selection.tokens.add(match.id);
+        } else if (match.type === 'cluster') {
+          selection.clusters.add(match.id);
+        } else if (match.type === 'edge') {
+          selection.edges.add(match.id);
+        }
+
+        viewport.x = window.innerWidth / 2 - (match.x + 60) * viewport.scale;
+        viewport.y = window.innerHeight / 2 - (match.y + 20) * viewport.scale;
+        applyViewportTransform();
+        updateSelectionVisuals();
+
+        if (match.type === 'token') {
+          const el = tokensLayerEl.querySelector(`[data-id="${match.id}"]`);
+          if (el) el.classList.add('search-focus');
+        }
+
+        Array.from(searchResultsListEl.children).forEach((child, i) => {
+          child.classList.toggle('bg-blue-50', i === searchActiveIndex);
+          child.classList.toggle('dark:bg-blue-950/50', i === searchActiveIndex);
+          child.classList.toggle('font-semibold', i === searchActiveIndex);
+        });
+      }
+
+      function openSearchPanel() {
+        searchPanelEl.classList.remove('hidden');
+        searchInputEl.focus();
+        searchInputEl.select();
+        if (searchInputEl.value.trim()) performSearch(searchInputEl.value);
+      }
+
+      function closeSearchPanel() {
+        searchPanelEl.classList.add('hidden');
+        clearSearchHighlights();
+      }
+
       // 一键适应画布自适应视口
       function fitViewToContent() {
         const hasAny = state.tokens.length > 0 || state.clusters.length > 0 || state.drawings.length > 0;
@@ -1254,7 +1721,254 @@
         return lines.join('\n');
       }
 
+      // ================= 生成独立 SVG 矢量图与 PNG 光栅图 =================
+      function escapeXml(str) {
+        return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      }
+
+      function generateBoardSvg() {
+        const isDark = document.documentElement.classList.contains('dark');
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+        state.tokens.forEach(t => {
+          const el = tokensLayerEl.querySelector(`[data-id="${t.id}"]`);
+          const w = el ? el.offsetWidth : 150;
+          const h = el ? el.offsetHeight : 44;
+          minX = Math.min(minX, t.x);
+          minY = Math.min(minY, t.y);
+          maxX = Math.max(maxX, t.x + w);
+          maxY = Math.max(maxY, t.y + h);
+        });
+        state.clusters.forEach(c => {
+          minX = Math.min(minX, c.x);
+          minY = Math.min(minY, c.y);
+          maxX = Math.max(maxX, c.x + c.width);
+          maxY = Math.max(maxY, c.y + c.height);
+        });
+        state.drawings.forEach(d => {
+          const b = getDrawingBounds(d);
+          minX = Math.min(minX, b.x);
+          minY = Math.min(minY, b.y);
+          maxX = Math.max(maxX, b.x + b.width);
+          maxY = Math.max(maxY, b.y + b.height);
+        });
+
+        if (minX === Infinity) {
+          minX = -300; minY = -200; maxX = 300; maxY = 200;
+        }
+
+        const pad = 64;
+        const vx = Math.floor(minX - pad);
+        const vy = Math.floor(minY - pad);
+        const vw = Math.max(400, Math.ceil(maxX - minX + pad * 2));
+        const vh = Math.max(280, Math.ceil(maxY - minY + pad * 2));
+        const bg = isDark ? '#141416' : '#f8f8f7';
+        const edgeStroke = isDark ? '#52525b' : '#a8a29e';
+
+        const cardThemes = {
+          neutral: isDark ? { bg: '#202024', border: '#34343b', text: '#f4f4f5' } : { bg: '#ffffff', border: '#e7e5e4', text: '#1c1917' },
+          yellow:  isDark ? { bg: '#362f12', border: '#715e18', text: '#fef08a' } : { bg: '#fef9c3', border: '#fde047', text: '#713f12' },
+          blue:    isDark ? { bg: '#122b3d', border: '#1e5378', text: '#bae6fd' } : { bg: '#e0f2fe', border: '#7dd3fc', text: '#0c4a6e' },
+          green:   isDark ? { bg: '#123322', border: '#1e633e', text: '#bbf7d0' } : { bg: '#dcfce7', border: '#86efac', text: '#14532d' },
+          red:     isDark ? { bg: '#381619', border: '#73262c', text: '#fecaca' } : { bg: '#fee2e2', border: '#fca5a5', text: '#7f1d1d' },
+          purple:  isDark ? { bg: '#2b183d', border: '#582d82', text: '#e9d5ff' } : { bg: '#f3e8ff', border: '#d8b4fe', text: '#581c87' }
+        };
+
+        const parts = [];
+        parts.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vx} ${vy} ${vw} ${vh}" width="${vw}" height="${vh}" style="font-family: Inter, 'Noto Sans SC', system-ui, sans-serif;">`);
+        parts.push(`<defs><marker id="export-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="${edgeStroke}"/></marker></defs>`);
+        parts.push(`<rect x="${vx}" y="${vy}" width="${vw}" height="${vh}" fill="${bg}"/>`);
+
+        // 1. 群组层
+        state.clusters.forEach(c => {
+          const pal = STROKE_PALETTE[c.color || 'neutral'] || STROKE_PALETTE.neutral;
+          const fill = isDark ? pal.fillDark : pal.fillLight;
+          const stroke = isDark ? pal.dark : pal.light;
+          parts.push(`<rect x="${c.x}" y="${c.y}" width="${c.width}" height="${c.height}" rx="20" fill="${fill}" stroke="${stroke}" stroke-width="1.5" stroke-dasharray="6,4"/>`);
+          parts.push(`<text x="${c.x + 18}" y="${c.y + 26}" fill="${isDark ? '#d4d4d8' : '#57534e'}" font-size="12" font-weight="bold">${escapeXml(c.title)}</text>`);
+        });
+
+        // 2. 手绘与图形层
+        state.drawings.forEach(d => {
+          const pal = STROKE_PALETTE[d.color || 'neutral'] || STROKE_PALETTE.neutral;
+          const stroke = isDark ? pal.dark : pal.light;
+          const fill = isDark ? pal.fillDark : pal.fillLight;
+          const sw = d.strokeWidth || 3;
+          if (d.type === 'pen' && d.points?.length > 0) {
+            parts.push(`<path d="${buildSmoothPenPath(d.points)}" fill="none" stroke="${stroke}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"/>`);
+          } else if (d.type === 'rect') {
+            parts.push(`<rect x="${d.x}" y="${d.y}" width="${Math.max(2, d.width)}" height="${Math.max(2, d.height)}" rx="12" fill="${fill}" stroke="${stroke}" stroke-width="${d.strokeWidth || 2.5}"/>`);
+          } else if (d.type === 'ellipse') {
+            parts.push(`<ellipse cx="${d.x + d.width / 2}" cy="${d.y + d.height / 2}" rx="${Math.max(2, d.width / 2)}" ry="${Math.max(2, d.height / 2)}" fill="${fill}" stroke="${stroke}" stroke-width="${d.strokeWidth || 2.5}"/>`);
+          } else if (d.type === 'line') {
+            parts.push(`<line x1="${d.x1}" y1="${d.y1}" x2="${d.x2}" y2="${d.y2}" stroke="${stroke}" stroke-width="${sw}" stroke-linecap="round"/>`);
+          }
+        });
+
+        // 3. 连线与标签层
+        state.edges.forEach(edge => {
+          const source = state.tokens.find(t => t.id === edge.source);
+          const target = state.tokens.find(t => t.id === edge.target);
+          if (!source || !target) return;
+          const { pathD, midX, midY } = computeEdgeGeometry(source, target);
+          parts.push(`<path d="${pathD}" fill="none" stroke="${edgeStroke}" stroke-width="2" marker-end="url(#export-arrow)"/>`);
+          if (edge.label) {
+            const lw = Math.max(48, edge.label.length * 11 + 18);
+            parts.push(`<rect x="${midX - lw / 2}" y="${midY - 11}" width="${lw}" height="22" rx="11" fill="${isDark ? '#27272a' : '#ffffff'}" stroke="${edgeStroke}" stroke-width="1"/>`);
+            parts.push(`<text x="${midX}" y="${midY + 4}" text-anchor="middle" fill="${isDark ? '#a1a1aa' : '#78716c'}" font-size="11">${escapeXml(edge.label)}</text>`);
+          }
+        });
+
+        // 4. 词块层
+        state.tokens.forEach(t => {
+          const el = tokensLayerEl.querySelector(`[data-id="${t.id}"]`);
+          const w = el ? el.offsetWidth : Math.max(96, Math.min(280, t.text.length * 14 + 32));
+          const h = el ? el.offsetHeight : 42;
+          const th = cardThemes[t.color || 'neutral'] || cardThemes.neutral;
+          parts.push(`<rect x="${t.x}" y="${t.y}" width="${w}" height="${h}" rx="14" fill="${th.bg}" stroke="${th.border}" stroke-width="1.5"/>`);
+          parts.push(`<text x="${t.x + 16}" y="${t.y + h / 2 + 5}" fill="${th.text}" font-size="14" font-weight="500">${escapeXml(t.text)}</text>`);
+        });
+
+        parts.push('</svg>');
+        return { svg: parts.join('\n'), width: vw, height: vh };
+      }
+
+      async function exportBoardAsPng() {
+        try {
+          const { svg, width, height } = generateBoardSvg();
+          const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+          const url = URL.createObjectURL(svgBlob);
+          const img = new Image();
+          await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = reject;
+            img.src = url;
+          });
+          const scale = 2;
+          const canvas = document.createElement('canvas');
+          canvas.width = width * scale;
+          canvas.height = height * scale;
+          const ctx = canvas.getContext('2d');
+          ctx.scale(scale, scale);
+          ctx.drawImage(img, 0, 0, width, height);
+          URL.revokeObjectURL(url);
+
+          const dataUrl = canvas.toDataURL('image/png');
+          const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+          if (await window.desktop.export({ blob, dataUrl, text: '', extension: 'png', filename: `${state.title || 'MindFlow'}.png` })) {
+            showToast(tr('已导出 PNG 图片'));
+          }
+        } catch (err) {
+          showToast(err.message);
+        }
+      }
+
+      // ================= 多白板与历史版本管理弹窗 =================
+      const modalBoardsEl = document.getElementById('modal-boards');
+      const boardsListContainerEl = document.getElementById('boards-list-container');
+      const backupsListContainerEl = document.getElementById('backups-list-container');
+
+      async function openBoardsModal() {
+        await flushSave();
+        await refreshBoardsModalList();
+        modalBoardsEl.classList.remove('hidden');
+      }
+
+      async function refreshBoardsModalList() {
+        if (!window.desktop.listBoards) return;
+        const info = await window.desktop.listBoards();
+        boardsListContainerEl.innerHTML = '';
+        backupsListContainerEl.innerHTML = '';
+
+        info.boards.forEach(b => {
+          const isCurrent = b.boardId === info.activeBoardId;
+          const row = document.createElement('div');
+          row.className = `flex items-center justify-between px-3.5 py-2.5 rounded-2xl border ${isCurrent ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-950/30' : 'border-stone-200 dark:border-zinc-800 bg-stone-50/60 dark:bg-zinc-800/50'}`;
+
+          const left = document.createElement('div');
+          left.className = 'min-w-0 flex-1 pr-2';
+          const titleDiv = document.createElement('div');
+          titleDiv.className = 'text-xs font-semibold text-stone-800 dark:text-zinc-100 truncate';
+          titleDiv.textContent = b.title || tr('未命名白板');
+          const metaDiv = document.createElement('div');
+          metaDiv.className = 'text-[11px] text-stone-400 dark:text-zinc-500 mt-0.5';
+          const timeStr = b.updatedAt ? new Date(b.updatedAt).toLocaleString() : '';
+          metaDiv.textContent = `r${b.revision} · ${b.tokenCount ?? 0} ${tr('词块')} · ${timeStr}`;
+          left.append(titleDiv, metaDiv);
+
+          const actions = document.createElement('div');
+          actions.className = 'flex items-center gap-1.5 shrink-0';
+          if (isCurrent) {
+            const badge = document.createElement('span');
+            badge.className = 'px-2 py-0.5 rounded-lg text-[11px] font-medium bg-blue-500/10 text-blue-600 dark:text-blue-400';
+            badge.textContent = tr('当前使用中');
+            actions.appendChild(badge);
+          } else {
+            const switchBtn = document.createElement('button');
+            switchBtn.className = 'px-2.5 py-1 rounded-xl text-xs font-medium bg-stone-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:opacity-90 transition';
+            switchBtn.textContent = tr('切换');
+            switchBtn.addEventListener('click', async () => {
+              const doc = await window.desktop.switchBoard(b.boardId);
+              acceptDocument(doc);
+              await refreshBoardsModalList();
+              showToast(tr('已切换白板'));
+            });
+            actions.appendChild(switchBtn);
+          }
+
+          if (info.boards.length > 1) {
+            const delBtn = document.createElement('button');
+            delBtn.className = 'px-2 py-1 rounded-xl text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition';
+            delBtn.textContent = tr('删除');
+            delBtn.addEventListener('click', () => {
+              showConfirm(tr('删除白板'), tr('确定要删除这张白板吗？此操作无法撤销。'), async () => {
+                const doc = await window.desktop.deleteBoard(b.boardId);
+                acceptDocument(doc);
+                await refreshBoardsModalList();
+                showToast(tr('已删除白板'));
+              });
+            });
+            actions.appendChild(delBtn);
+          }
+
+          row.append(left, actions);
+          boardsListContainerEl.appendChild(row);
+        });
+
+        if (!info.backups || info.backups.length === 0) {
+          const empty = document.createElement('div');
+          empty.className = 'text-xs text-stone-400 dark:text-zinc-500 py-3 text-center';
+          empty.textContent = tr('暂无历史修订快照');
+          backupsListContainerEl.appendChild(empty);
+        } else {
+          info.backups.forEach(bk => {
+            const row = document.createElement('div');
+            row.className = 'flex items-center justify-between px-3 py-2 rounded-xl border border-stone-200/80 dark:border-zinc-800 text-xs';
+            const meta = document.createElement('span');
+            meta.className = 'text-stone-600 dark:text-zinc-300 truncate pr-2';
+            const timeStr = bk.updatedAt ? new Date(bk.updatedAt).toLocaleTimeString() : '';
+            meta.textContent = `r${bk.revision} · ${bk.title} (${bk.tokenCount} ${tr('词块')}) · ${timeStr}`;
+            const restoreBtn = document.createElement('button');
+            restoreBtn.className = 'px-2.5 py-1 rounded-lg text-xs font-medium border border-stone-200 dark:border-zinc-700 hover:bg-stone-100 dark:hover:bg-zinc-800 transition shrink-0';
+            restoreBtn.textContent = tr('恢复此版本');
+            restoreBtn.addEventListener('click', async () => {
+              const doc = await window.desktop.restoreBackup(bk.revision);
+              acceptDocument(doc);
+              await refreshBoardsModalList();
+              showToast(tr('已恢复到历史版本'));
+            });
+            row.append(meta, restoreBtn);
+            backupsListContainerEl.appendChild(row);
+          });
+        }
+      }
+
       // ================= 事件绑定 =================
+
+      // 禁用画布右键默认菜单以支持右键平滑拖拽画布
+      viewportEl.addEventListener('contextmenu', (e) => {
+        if (!e.target.closest('.fixed, dialog')) e.preventDefault();
+      });
 
       // 1. 双击画布空白处快速添加词块
       viewportEl.addEventListener('dblclick', (e) => {
@@ -1264,14 +1978,28 @@
         openQuickInput(e.clientX, e.clientY, worldPos.x - 55, worldPos.y - 20, null);
       });
 
-      // 2. 画布 PointerDown（平移 / 框选 / 自由画笔与图形绘制）
+      // 2. 画布 PointerDown（平移 / 双指缩放 / 橡皮擦 / 框选 / 自由画笔与图形绘制）
       viewportEl.addEventListener('pointerdown', (e) => {
         if (e.target.closest('.fixed, dialog')) return;
         if (!quickInputBoxEl.classList.contains('hidden')) {
           commitQuickInput();
         }
 
-        if (e.button === 1 || (e.button === 0 && isSpacePressed)) {
+        // 记录触控点，支持双指捏合缩放与双指平移
+        if (e.pointerType === 'touch') {
+          activeTouchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+          if (activeTouchPointers.size === 2) {
+            const pts = Array.from(activeTouchPointers.values());
+            pinchStartDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
+            pinchStartScale = viewport.scale;
+            pinchStartCenter = screenToWorld((pts[0].x + pts[1].x) / 2, (pts[0].y + pts[1].y) / 2);
+            interaction.mode = 'pinch';
+            marqueeBoxEl.classList.add('hidden');
+            return;
+          }
+        }
+
+        if (e.button === 1 || e.button === 2 || (e.button === 0 && isSpacePressed)) {
           interaction.mode = 'pan';
           interaction.startClientX = e.clientX;
           interaction.startClientY = e.clientY;
@@ -1283,6 +2011,14 @@
 
         if (e.button === 0) {
           const worldPos = screenToWorld(e.clientX, e.clientY);
+
+          // 橡皮擦模式：按下即开始擦除沿途笔迹与图形
+          if (activeTool === 'eraser') {
+            interaction.mode = 'erasing';
+            interaction.erasedInStroke = false;
+            updateEraserAt(worldPos.x, worldPos.y, true);
+            return;
+          }
 
           // 若当前为绘图工具模式（画笔 / 矩形 / 圆形 / 直线）
           if (activeTool !== 'select') {
@@ -1296,6 +2032,7 @@
                 id: uid('dr'),
                 type: 'pen',
                 color: activeStrokeColor,
+                strokeWidth: activeStrokeWidth,
                 points: [{ x: worldPos.x, y: worldPos.y }]
               };
             } else if (activeTool === 'rect' || activeTool === 'ellipse') {
@@ -1303,6 +2040,7 @@
                 id: uid('dr'),
                 type: activeTool,
                 color: activeStrokeColor,
+                strokeWidth: activeStrokeWidth,
                 x: worldPos.x,
                 y: worldPos.y,
                 width: 1,
@@ -1313,6 +2051,7 @@
                 id: uid('dr'),
                 type: 'line',
                 color: activeStrokeColor,
+                strokeWidth: activeStrokeWidth,
                 x1: worldPos.x,
                 y1: worldPos.y,
                 x2: worldPos.x,
@@ -1350,6 +2089,31 @@
 
       // 3. 全局 PointerMove
       window.addEventListener('pointermove', (e) => {
+        if (e.pointerType === 'touch' && activeTouchPointers.has(e.pointerId)) {
+          activeTouchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+          if (interaction.mode === 'pinch' && activeTouchPointers.size === 2) {
+            const pts = Array.from(activeTouchPointers.values());
+            const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
+            const midX = (pts[0].x + pts[1].x) / 2;
+            const midY = (pts[0].y + pts[1].y) / 2;
+            const newScale = Math.max(0.25, Math.min(2.5, pinchStartScale * (dist / pinchStartDist)));
+            viewport.scale = newScale;
+            if (pinchStartCenter) {
+              viewport.x = midX - pinchStartCenter.x * newScale;
+              viewport.y = midY - pinchStartCenter.y * newScale;
+            }
+            applyViewportTransform();
+            return;
+          }
+        }
+
+        // 橡皮擦悬停或拖拽擦除
+        if (activeTool === 'eraser' && (interaction.mode === 'idle' || interaction.mode === 'erasing')) {
+          const wp = screenToWorld(e.clientX, e.clientY);
+          updateEraserAt(wp.x, wp.y, interaction.mode === 'erasing');
+          if (interaction.mode === 'erasing') return;
+        }
+
         if (interaction.mode === 'idle') return;
 
         if (interaction.mode === 'pan') {
@@ -1362,12 +2126,12 @@
         if (interaction.mode === 'drawing' && interaction.draftDrawing) {
           const wp = screenToWorld(e.clientX, e.clientY);
           const dist = Math.hypot(wp.x - interaction.startWorldX, wp.y - interaction.startWorldY);
-          if (dist > 2 / viewport.scale) interaction.hasMoved = true;
+          if (dist > 1.5 / viewport.scale) interaction.hasMoved = true;
 
           const d = interaction.draftDrawing;
           if (d.type === 'pen') {
             const lastPt = d.points[d.points.length - 1];
-            if (Math.hypot(wp.x - lastPt.x, wp.y - lastPt.y) > 2 / viewport.scale) {
+            if (Math.hypot(wp.x - lastPt.x, wp.y - lastPt.y) > 1.8 / viewport.scale) {
               d.points.push({ x: wp.x, y: wp.y });
             }
           } else if (d.type === 'rect' || d.type === 'ellipse') {
@@ -1554,12 +2318,27 @@
 
       // 4. 全局 PointerUp
       window.addEventListener('pointerup', (e) => {
+        if (e.pointerType === 'touch') {
+          activeTouchPointers.delete(e.pointerId);
+          if (interaction.mode === 'pinch') {
+            if (activeTouchPointers.size < 2) interaction.mode = 'idle';
+            return;
+          }
+        }
+
         if (interaction.mode === 'pan') {
-          viewportEl.style.cursor = isSpacePressed ? 'grab' : (activeTool === 'select' ? 'default' : 'crosshair');
+          viewportEl.style.cursor = isSpacePressed ? 'grab' : (activeTool === 'select' ? 'default' : (activeTool === 'eraser' ? 'cell' : 'crosshair'));
+        } else if (interaction.mode === 'erasing') {
+          if (interaction.erasedInStroke) {
+            saveToLocalStorage();
+          }
+          interaction.erasedInStroke = false;
         } else if (interaction.mode === 'drawing') {
           tempDrawingContainerEl.innerHTML = '';
           const d = interaction.draftDrawing;
-          if (d && interaction.hasMoved) {
+          // 画笔允许单点点击落墨或连续涂鸦；几何图形要求有一定拖拽位移
+          const validStroke = d && (d.type === 'pen' ? d.points.length >= 1 && (interaction.hasMoved || d.points.length === 1) : interaction.hasMoved);
+          if (validStroke && (d.type !== 'pen' || interaction.hasMoved)) {
             pushHistory();
             state.drawings.push(d);
             renderDrawings();
@@ -1629,7 +2408,20 @@
 
       // 6. 键盘快捷键与空格平移状态
       window.addEventListener('keydown', (e) => {
-        if(document.querySelector('dialog[open]') || ['modal-export','modal-shortcuts','modal-confirm'].some(id=>!document.getElementById(id).classList.contains('hidden'))) return;
+        if(document.querySelector('dialog[open]') || ['modal-export','modal-shortcuts','modal-confirm','modal-boards'].some(id=>!document.getElementById(id)?.classList.contains('hidden'))) return;
+
+        // 全局支持 Ctrl/Cmd + F 唤起搜索面板，Ctrl/Cmd + B 打开白板列表
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+          e.preventDefault();
+          openSearchPanel();
+          return;
+        }
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+          e.preventDefault();
+          openBoardsModal();
+          return;
+        }
+
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
         if (e.code === 'Space' && !isSpacePressed) {
@@ -1644,6 +2436,7 @@
           const k = e.key.toLowerCase();
           if (k === 'v') { setActiveTool('select'); return; }
           if (k === 'p') { setActiveTool('pen'); return; }
+          if (k === 'e') { setActiveTool('eraser'); return; }
           if (k === 'r') { setActiveTool('rect'); return; }
           if (k === 'o') { setActiveTool('ellipse'); return; }
           if (k === 'l') { setActiveTool('line'); return; }
@@ -1653,6 +2446,28 @@
           e.preventDefault();
           if (e.shiftKey) redo();
           else undo();
+          return;
+        }
+
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+          if (copySelectedItems()) e.preventDefault();
+          return;
+        }
+
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
+          if (pasteClipboardItems()) e.preventDefault();
+          return;
+        }
+
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+          e.preventDefault();
+          duplicateSelectedItems();
+          return;
+        }
+
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+          e.preventDefault();
+          selectAllItems();
           return;
         }
 
@@ -1677,6 +2492,10 @@
         }
 
         if (e.key === 'Escape') {
+          if (!searchPanelEl.classList.contains('hidden')) {
+            closeSearchPanel();
+            return;
+          }
           if (activeTool !== 'select') setActiveTool('select');
           clearSelection();
           closeQuickInput();
@@ -1686,7 +2505,7 @@
       window.addEventListener('keyup', (e) => {
         if (e.code === 'Space') {
           isSpacePressed = false;
-          viewportEl.style.cursor = activeTool === 'select' ? 'default' : 'crosshair';
+          viewportEl.style.cursor = activeTool === 'select' ? 'default' : (activeTool === 'eraser' ? 'cell' : 'crosshair');
         }
       });
 
@@ -1694,6 +2513,16 @@
       document.querySelectorAll('.tool-btn').forEach(btn => {
         btn.addEventListener('click', () => {
           setActiveTool(btn.dataset.tool);
+        });
+      });
+
+      document.querySelectorAll('.dock-width-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          activeStrokeWidth = Number(btn.dataset.strokeWidth) || 3.5;
+          document.querySelectorAll('.dock-width-btn').forEach(b => {
+            b.className = 'dock-width-btn w-5 h-5 rounded-lg flex items-center justify-center hover:bg-stone-100 dark:hover:bg-zinc-800 transition';
+          });
+          btn.className = 'dock-width-btn w-5 h-5 rounded-lg flex items-center justify-center bg-stone-200/80 dark:bg-zinc-700 transition';
         });
       });
 
@@ -1726,7 +2555,7 @@
         btn.addEventListener('click', () => {
           const color = btn.dataset.color;
           if (!color) return;
-          if (selection.tokens.size === 0 && selection.drawings.size === 0) return;
+          if (selection.tokens.size === 0 && selection.drawings.size === 0 && selection.clusters.size === 0) return;
 
           pushHistory();
           selection.tokens.forEach(id => {
@@ -1737,11 +2566,31 @@
             const d = state.drawings.find(item => item.id === id);
             if (d) d.color = color;
           });
+          selection.clusters.forEach(id => {
+            const c = state.clusters.find(item => item.id === id);
+            if (c) c.color = color;
+          });
 
+          renderClusters();
           renderTokens();
           renderDrawings();
           saveToLocalStorage();
         });
+      });
+
+      document.getElementById('btn-toolbar-edge-label')?.addEventListener('click', () => {
+        if (selection.edges.size === 1) {
+          const edgeId = Array.from(selection.edges)[0];
+          const edge = state.edges.find(e => e.id === edgeId);
+          if (edge) {
+            const s = state.tokens.find(t => t.id === edge.source);
+            const t = state.tokens.find(tok => tok.id === edge.target);
+            if (s && t) {
+              const { midX, midY } = computeEdgeGeometry(s, t);
+              openEdgeLabelEditor(edge, midX, midY);
+            }
+          }
+        }
       });
 
       document.getElementById('btn-toolbar-branch').addEventListener('click', () => {
@@ -1752,8 +2601,54 @@
         }
       });
 
+      document.getElementById('btn-toolbar-duplicate')?.addEventListener('click', duplicateSelectedItems);
+      document.getElementById('btn-align-row')?.addEventListener('click', () => alignSelectedTokens('row'));
+      document.getElementById('btn-align-col')?.addEventListener('click', () => alignSelectedTokens('col'));
       document.getElementById('btn-toolbar-group').addEventListener('click', groupSelectedTokens);
       document.getElementById('btn-toolbar-delete').addEventListener('click', deleteSelectedItems);
+
+      // 8.5 搜索面板与多白板弹窗事件
+      document.getElementById('btn-search-toggle')?.addEventListener('click', () => {
+        if (searchPanelEl.classList.contains('hidden')) openSearchPanel();
+        else closeSearchPanel();
+      });
+      document.getElementById('btn-search-close')?.addEventListener('click', closeSearchPanel);
+      document.getElementById('btn-search-next')?.addEventListener('click', () => focusSearchMatch(searchActiveIndex + 1));
+      document.getElementById('btn-search-prev')?.addEventListener('click', () => focusSearchMatch(searchActiveIndex - 1));
+      searchInputEl?.addEventListener('input', (e) => performSearch(e.target.value));
+      searchInputEl?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          focusSearchMatch(e.shiftKey ? searchActiveIndex - 1 : searchActiveIndex + 1);
+        } else if (e.key === 'Escape') {
+          closeSearchPanel();
+        }
+      });
+
+      document.getElementById('btn-auto-layout')?.addEventListener('click', autoLayoutBoard);
+
+      document.getElementById('btn-boards-modal')?.addEventListener('click', openBoardsModal);
+      document.getElementById('btn-close-boards')?.addEventListener('click', () => modalBoardsEl.classList.add('hidden'));
+      modalBoardsEl?.addEventListener('click', (e) => {
+        if (e.target === modalBoardsEl) modalBoardsEl.classList.add('hidden');
+      });
+      document.getElementById('btn-new-blank-board')?.addEventListener('click', async () => {
+        await flushSave();
+        const doc = await window.desktop.createBoard({ title: tr('未命名白板'), fromExample: false });
+        acceptDocument(doc);
+        await refreshBoardsModalList();
+        modalBoardsEl.classList.add('hidden');
+        showToast(tr('已新建白板'));
+      });
+      document.getElementById('btn-new-example-board')?.addEventListener('click', async () => {
+        await flushSave();
+        const doc = await window.desktop.createBoard({ fromExample: true });
+        acceptDocument(doc);
+        fitViewToContent();
+        await refreshBoardsModalList();
+        modalBoardsEl.classList.add('hidden');
+        showToast(tr('已新建白板'));
+      });
 
       // 9. 顶部栏按钮事件
       boardTitleInputEl.addEventListener('change', (e) => {
@@ -1829,16 +2724,21 @@
       const exportPreviewArea = document.getElementById('export-preview-area');
       const tabMdBtn = document.getElementById('tab-export-md');
       const tabJsonBtn = document.getElementById('tab-export-json');
+      const tabSvgBtn = document.getElementById('tab-export-svg');
 
       function refreshExportPreview() {
+        const activeCls = 'px-3 py-1 rounded-lg text-xs font-medium bg-white dark:bg-zinc-700 text-stone-800 dark:text-zinc-100 shadow-xs transition';
+        const inactiveCls = 'px-3 py-1 rounded-lg text-xs font-medium text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-200 transition';
+        tabMdBtn.className = currentExportTab === 'md' ? activeCls : inactiveCls;
+        tabJsonBtn.className = currentExportTab === 'json' ? activeCls : inactiveCls;
+        if (tabSvgBtn) tabSvgBtn.className = currentExportTab === 'svg' ? activeCls : inactiveCls;
+
         if (currentExportTab === 'md') {
           exportPreviewArea.value = generateMarkdownOutline();
-          tabMdBtn.className = 'px-3 py-1 rounded-lg text-xs font-medium bg-white dark:bg-zinc-700 text-stone-800 dark:text-zinc-100 shadow-xs transition';
-          tabJsonBtn.className = 'px-3 py-1 rounded-lg text-xs font-medium text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-200 transition';
+        } else if (currentExportTab === 'svg') {
+          exportPreviewArea.value = generateBoardSvg().svg;
         } else {
           exportPreviewArea.value = JSON.stringify(snapshot(), null, 2);
-          tabJsonBtn.className = 'px-3 py-1 rounded-lg text-xs font-medium bg-white dark:bg-zinc-700 text-stone-800 dark:text-zinc-100 shadow-xs transition';
-          tabMdBtn.className = 'px-3 py-1 rounded-lg text-xs font-medium text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-200 transition';
         }
       }
 
@@ -1859,12 +2759,19 @@
         currentExportTab = 'json';
         refreshExportPreview();
       });
+      tabSvgBtn?.addEventListener('click', () => {
+        currentExportTab = 'svg';
+        refreshExportPreview();
+      });
+
+      document.getElementById('btn-export-png')?.addEventListener('click', exportBoardAsPng);
 
       document.getElementById('btn-copy-export').addEventListener('click', async () => {
         try { await window.desktop.copy(exportPreviewArea.value); showToast(tr('已复制')); } catch(e) { showToast(e.message); }
       });
       document.getElementById('btn-download-export').addEventListener('click', async () => {
-        try { if(await window.desktop.export({text:exportPreviewArea.value,extension:currentExportTab==='md'?'md':'json'})) showToast(tr('已导出文件')); }
+        const ext = currentExportTab === 'md' ? 'md' : (currentExportTab === 'svg' ? 'svg' : 'json');
+        try { if(await window.desktop.export({text:exportPreviewArea.value,extension:ext})) showToast(tr('已导出文件')); }
         catch(e) { showToast(e.message); }
       });
       async function importDocument(doc) {
@@ -1917,6 +2824,54 @@
           await window.desktop.export({text:JSON.stringify(context,null,2),extension:'json'});
         }catch(e){showToast(e.message);}
       };
+      const copyCtxBtn = document.getElementById('btn-copy-context');
+      if (copyCtxBtn) {
+        copyCtxBtn.onclick = async () => {
+          try {
+            const scope = document.getElementById('context-scope').value;
+            const context = await window.desktop.context({ document: snapshot(), scope });
+            await window.desktop.copy(JSON.stringify(context, null, 2));
+            showToast(tr('已复制内容 JSON'));
+          } catch (e) {
+            showToast(e.message);
+          }
+        };
+      }
+      const copySkillPromptBtn = document.getElementById('btn-copy-skill-prompt');
+      if (copySkillPromptBtn) {
+        copySkillPromptBtn.onclick = async () => {
+          try {
+            const scope = document.getElementById('context-scope').value;
+            const lang = document.documentElement.lang === 'en' ? 'en' : 'zh';
+            const [guide, context] = await Promise.all([
+              window.desktop.skillGuide ? window.desktop.skillGuide(lang) : '',
+              window.desktop.context({ document: snapshot(), scope })
+            ]);
+            const payload = `${guide}\n\n\`\`\`json\n${JSON.stringify(context, null, 2)}\n\`\`\``;
+            await window.desktop.copy(payload);
+            showToast(tr('已复制 AI 技能与白板上下文'));
+          } catch (e) {
+            showToast(e.message);
+          }
+        };
+      }
+      const downloadSkillBtn = document.getElementById('btn-download-skill');
+      if (downloadSkillBtn) {
+        downloadSkillBtn.onclick = async () => {
+          try {
+            const [zhGuide, enGuide] = await Promise.all([
+              window.desktop.skillGuide ? window.desktop.skillGuide('zh') : '',
+              window.desktop.skillGuide ? window.desktop.skillGuide('en') : ''
+            ]);
+            const skillMd = `---\nname: mindflow-whiteboard\ndescription: Built-in AI skill for MindFlow (自由白板) — understand, organize, expand, and generate MindFlow spatial whiteboards via MCP tools or canonical JSON interchange.\n---\n\n${zhGuide}\n\n---\n\n${enGuide}\n`;
+            if (await window.desktop.export({ text: skillMd, extension: 'md', filename: 'SKILL.md' })) {
+              showToast(tr('已导出 SKILL.md'));
+            }
+          } catch (e) {
+            showToast(e.message);
+          }
+        };
+      }
       window.desktop.onMenu(async action=>{
         if(action==='open')await openNative();
         if(action==='export')await exportSnapshot();
@@ -1947,6 +2902,7 @@
       window.addEventListener('mindflow-language-change', () => {
         if (!ready) return;
         renderAll();
+        if (!modalBoardsEl.classList.contains('hidden')) refreshBoardsModalList();
         if (conflict) status(tr('未保存 · 请处理'));
         else if (signature(snapshot()) === lastSavedContent) showSaved(documentMeta.revision);
       });
