@@ -1,8 +1,9 @@
 
     /**
-     * MindFlow 空间灵感白板核心引擎
+     * MindFlow 自由白板核心引擎
      */
     (function () {
+      const tr = window.mindflowLanguage.translate;
       const STORAGE_KEY = 'mindflow_brainstorm_v1';
       const THEME_KEY = 'mindflow_theme_v1';
 
@@ -28,7 +29,7 @@
 
       // 核心应用状态
       let state = {
-        title: '未命名头脑风暴',
+        title: tr('未命名白板'),
         tokens: [],   // { id, text, x, y, color }
         edges: [],    // { id, source, target, label }
         clusters: [], // { id, title, x, y, width, height, color }
@@ -196,7 +197,7 @@
         renderAll();
         saveToLocalStorage();
         updateUndoRedoButtons();
-        showToast('已撤销上一步操作');
+        showToast(tr('已撤销上一步操作'));
       }
 
       function redo() {
@@ -207,7 +208,7 @@
         renderAll();
         saveToLocalStorage();
         updateUndoRedoButtons();
-        showToast('已重做操作');
+        showToast(tr('已重做操作'));
       }
 
       function updateUndoRedoButtons() {
@@ -229,15 +230,19 @@
         return {...documentMeta, ...cloneState(state), viewport: {...viewport}, selection: selected};
       }
       function signature(doc) { return JSON.stringify([doc.title,doc.tokens,doc.edges,doc.clusters,doc.drawings,doc.viewport,doc.selection]); }
+      function showSaved(revision) {
+        const label = window.desktop.mode === 'browser' ? tr('浏览器已保存') : tr('已保存');
+        status(label + ' · r' + revision);
+      }
       function status(text) { document.getElementById('save-status').textContent = text; }
       function showFailure(error) {
         conflict = true;
-        status('未保存 · 请处理');
+        status(tr('未保存 · 请处理'));
         const banner = document.getElementById('sync-banner');
         banner.hidden = false;
         document.getElementById('sync-message').textContent = error.message.includes('REVISION_CONFLICT')
-          ? 'Agent 已修改白板。本地编辑仍保留，请先导出副本，再读取最新版本。'
-          : '保存失败，本地编辑仍保留：' + error.message;
+          ? tr('另有修改已保存。请先导出本地副本，再载入最新版本。')
+          : tr('保存失败，本地编辑仍保留') + ' · ' + error.message;
       }
       function acceptDocument(doc) {
         applying = true;
@@ -249,7 +254,7 @@
         renderAll(); updateUndoRedoButtons();
         lastSavedContent = signature(snapshot());
         applying = false;
-        status((window.desktop.mode==='browser'?'浏览器已保存 · r':'已保存 · r') + doc.revision);
+        showSaved(doc.revision);
       }
       async function flushSave() {
         clearTimeout(saveTimer);
@@ -258,17 +263,17 @@
         saving = (async () => {
           while (signature(snapshot()) !== lastSavedContent) {
             const doc = snapshot(); const sent = signature(doc);
-            status('保存中…');
+            status(tr('保存中…'));
             const stored = await window.desktop.save({document:doc,expectedRevision:documentMeta.revision});
             documentMeta.revision=stored.revision; documentMeta.updatedAt=stored.updatedAt;
-            lastSavedContent=sent; status('已保存 · r'+stored.revision);
+            lastSavedContent=sent; showSaved(stored.revision);
           }
         })();
         try { await saving; return true; } catch(error) { showFailure(error); return false; } finally { saving=null; }
       }
       function saveToLocalStorage() {
         if(!ready || applying || conflict) return;
-        clearTimeout(saveTimer); status('待保存…');
+        clearTimeout(saveTimer); status(tr('待保存…'));
         saveTimer=setTimeout(flushSave,200);
       }
       async function pollDocument() {
@@ -281,37 +286,13 @@
         try{
           const doc=await window.desktop.read();
           if(signature(snapshot())===before && !saving && doc.revision!==documentMeta.revision) {
-            acceptDocument(doc); showToast('已同步 Agent 修改');
+            acceptDocument(doc); showToast(tr('已载入最新版本'));
           }
         }catch(error){ showFailure(error); }finally{polling=false;}
       }
       // 加载内置示例模板
       function loadDemoData() {
-        state = {
-          title: '新产品灵感发散 · AI 语音笔记',
-          clusters: [
-            { id: 'cl_1', title: '核心痛点洞察', x: -380, y: -170, width: 270, height: 290, color: 'purple' },
-            { id: 'cl_2', title: 'MVP 核心功能', x: 130, y: -190, width: 320, height: 360, color: 'blue' }
-          ],
-          tokens: [
-            { id: 'tk_root', text: '随时随地语音捕捉灵感', x: -70, y: -30, color: 'yellow' },
-            { id: 'tk_1', text: '打字太慢，想法转瞬即逝', x: -340, y: -100, color: 'purple' },
-            { id: 'tk_2', text: '通勤/散步时双手被占用', x: -340, y: 10, color: 'purple' },
-            { id: 'tk_3', text: '锁屏一键录音 Widget', x: 170, y: -120, color: 'blue' },
-            { id: 'tk_4', text: '自动提炼关键词 Token', x: 170, y: -20, color: 'green' },
-            { id: 'tk_5', text: '自动归类到主题白板', x: 170, y: 80, color: 'green' },
-            { id: 'tk_6', text: '嘈杂环境语音识别准确率？', x: -70, y: 130, color: 'red' }
-          ],
-          edges: [
-            { id: 'ed_1', source: 'tk_1', target: 'tk_root', label: '催生需求' },
-            { id: 'ed_2', source: 'tk_2', target: 'tk_root', label: '场景' },
-            { id: 'ed_3', source: 'tk_root', target: 'tk_3', label: '入口' },
-            { id: 'ed_4', source: 'tk_root', target: 'tk_4', label: 'AI 处理' },
-            { id: 'ed_5', source: 'tk_4', target: 'tk_5', label: '结构化' },
-            { id: 'ed_6', source: 'tk_root', target: 'tk_6', label: '风险点' }
-          ],
-          drawings: []
-        };
+        state = structuredClone(window.mindflowExample);
         viewport = {
           x: window.innerWidth / 2,
           y: window.innerHeight / 2,
@@ -524,7 +505,7 @@
           });
           titleInput.addEventListener('change', (e) => {
             pushHistory();
-            cluster.title = e.target.value.trim() || '未命名群组';
+            cluster.title = e.target.value.trim() || tr('未命名群组');
             saveToLocalStorage();
           });
           titleInput.addEventListener('keydown', (e) => {
@@ -618,7 +599,7 @@
 
           // 右侧快捷发散按钮 (+)
           const branchBtn = document.createElement('button');
-          branchBtn.title = '向右侧发散关联词条 (Tab)';
+          branchBtn.title = tr('添加相连的词块 (Tab)');
           branchBtn.className = 'quick-branch-btn absolute -right-7 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs font-bold shadow-sm hover:scale-110 transition cursor-pointer';
           branchBtn.textContent = '+';
           branchBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
@@ -637,7 +618,7 @@
           ];
           anchors.forEach(a => {
             const dot = document.createElement('div');
-            dot.title = '拖拽连接到其他词条';
+            dot.title = tr('拖到另一个词块以连接');
             dot.className = `node-handle absolute ${a.cls} w-3 h-3 rounded-full bg-blue-500 border-2 border-white dark:border-zinc-900 shadow-xs cursor-crosshair hover:scale-125`;
             dot.addEventListener('pointerdown', (e) => {
               e.stopPropagation();
@@ -871,7 +852,7 @@
         const input = document.createElement('input');
         input.type = 'text';
         input.value = edge.label || '';
-        input.placeholder = '输入关系标签...';
+        input.placeholder = tr('输入关系标签...');
         input.className = 'fixed z-50 -translate-x-1/2 -translate-y-1/2 px-2.5 py-1 rounded-full text-xs bg-white dark:bg-zinc-800 border border-blue-500 shadow-float outline-none text-stone-800 dark:text-zinc-100 text-center min-w-[110px]';
         input.style.left = `${screenPos.x}px`;
         input.style.top = `${screenPos.y}px`;
@@ -1023,7 +1004,7 @@
         quickInputBoxEl.style.top = `${top}px`;
 
         quickInputFieldEl.value = '';
-        quickInputFieldEl.placeholder = parentTokenId ? '输入关联发散词条，回车生成...' : '输入灵感词条，回车生成...';
+        quickInputFieldEl.placeholder = parentTokenId ? tr('输入新词块内容，按回车连接') : tr('输入词块内容，按回车添加');
         setTimeout(() => quickInputFieldEl.focus(), 10);
       }
 
@@ -1114,7 +1095,7 @@
         pushHistory();
         const newCluster = {
           id: uid('cl'),
-          title: `灵感主题 #${state.clusters.length + 1}`,
+          title: `${tr('群组')} #${state.clusters.length + 1}`,
           x: minX - 28,
           y: minY - 46,
           width: Math.max(200, (maxX - minX) + 56),
@@ -1127,7 +1108,7 @@
         selection.clusters.add(newCluster.id);
         renderAll();
         saveToLocalStorage();
-        showToast('已将选中词条归类为空间群组，双击标题可重命名');
+        showToast(tr('已创建群组，双击标题可重命名'));
       }
 
       // 删除所有选中元素
@@ -1154,7 +1135,7 @@
         saveToLocalStorage();
       }
 
-      // 一键居中自适应视口
+      // 一键适应画布自适应视口
       function fitViewToContent() {
         const hasAny = state.tokens.length > 0 || state.clusters.length > 0 || state.drawings.length > 0;
         if (!hasAny) {
@@ -1203,7 +1184,7 @@
 
       // 生成结构化 Markdown 大纲
       function generateMarkdownOutline() {
-        const lines = [`# ${state.title || '头脑风暴整理大纲'}`, ''];
+        const lines = [`# ${state.title || tr('白板大纲')}`, ''];
         const assignedTokenIds = new Set();
 
         const childrenMap = new Map();
@@ -1243,7 +1224,7 @@
             });
             lines.push(`## 📁 ${cluster.title}`);
             if (members.length === 0) {
-              lines.push('- *(暂无归类词条)*');
+              lines.push(tr('- *(暂无归类词条)*'));
             } else {
               members.forEach(m => {
                 assignedTokenIds.add(m.id);
@@ -1256,7 +1237,7 @@
 
         const unassigned = state.tokens.filter(t => !assignedTokenIds.has(t.id));
         if (unassigned.length > 0) {
-          lines.push(state.clusters.length > 0 ? '## 💡 未归类发散词条' : '## 💡 灵感脉络');
+          lines.push(state.clusters.length > 0 ? tr('## 💡 未分组词块') : tr('## 词块'));
           const hasIncoming = new Set(state.edges.map(e => e.target));
           const roots = unassigned.filter(t => !hasIncoming.has(t.id));
           const visited = new Set();
@@ -1275,7 +1256,7 @@
 
       // ================= 事件绑定 =================
 
-      // 1. 双击画布空白处快速输入词条
+      // 1. 双击画布空白处快速添加词块
       viewportEl.addEventListener('dblclick', (e) => {
         if (e.target !== viewportEl && e.target !== worldLayerEl && e.target.id !== 'edges-svg' && e.target.id !== 'drawings-svg') return;
         if (activeTool !== 'select') setActiveTool('select');
@@ -1776,7 +1757,7 @@
 
       // 9. 顶部栏按钮事件
       boardTitleInputEl.addEventListener('change', (e) => {
-        state.title = e.target.value.trim() || '未命名头脑风暴';
+        state.title = e.target.value.trim() || tr('未命名白板');
         saveToLocalStorage();
       });
       boardTitleInputEl.addEventListener('keydown', (e) => {
@@ -1787,16 +1768,16 @@
       document.getElementById('btn-redo').addEventListener('click', redo);
 
       document.getElementById('btn-load-demo').addEventListener('click', () => {
-        showConfirm('加载示例灵感白板', '当前画布内容将被替换为示例模板（可通过 Ctrl+Z 撤销），是否继续？', () => {
+        showConfirm(tr('加载示例白板'), tr('用示例替换当前白板？可以撤销此操作。'), () => {
           pushHistory();
           loadDemoData();
           fitViewToContent();
-          showToast('已加载示例白板');
+          showToast(tr('已加载示例白板'));
         });
       });
 
       document.getElementById('btn-clear-board').addEventListener('click', () => {
-        showConfirm('清空当前画布', '确定要清空所有词条、手绘图形、连线和群组吗？（可通过 Ctrl+Z 撤销）', () => {
+        showConfirm(tr('清空当前画布'), tr('清除白板上的所有内容？可以撤销此操作。'), () => {
           pushHistory();
           state.tokens = [];
           state.edges = [];
@@ -1805,7 +1786,7 @@
           clearSelection();
           renderAll();
           saveToLocalStorage();
-          showToast('画布已清空，双击任意处重新开始');
+          showToast(tr('白板已清空'));
         });
       });
 
@@ -1880,10 +1861,10 @@
       });
 
       document.getElementById('btn-copy-export').addEventListener('click', async () => {
-        try { await window.desktop.copy(exportPreviewArea.value); showToast('已复制'); } catch(e) { showToast(e.message); }
+        try { await window.desktop.copy(exportPreviewArea.value); showToast(tr('已复制')); } catch(e) { showToast(e.message); }
       });
       document.getElementById('btn-download-export').addEventListener('click', async () => {
-        try { if(await window.desktop.export({text:exportPreviewArea.value,extension:currentExportTab==='md'?'md':'json'})) showToast('已导出文件'); }
+        try { if(await window.desktop.export({text:exportPreviewArea.value,extension:currentExportTab==='md'?'md':'json'})) showToast(tr('已导出文件')); }
         catch(e) { showToast(e.message); }
       });
       async function importDocument(doc) {
@@ -1892,14 +1873,14 @@
         viewport={...doc.viewport};
         selection=Object.fromEntries(keys.map(k=>[k,new Set(doc.selection[k])]));
         renderAll();
-        if(await flushSave()){modalExport.classList.add('hidden');showToast('已导入白板');}
+        if(await flushSave()){modalExport.classList.add('hidden');showToast(tr('已导入白板'));}
       }
       document.getElementById('input-import-json').addEventListener('change', async e => {
         const file=e.target.files?.[0];e.target.value='';if(!file)return;
         try{
-          if(file.size>16*1024*1024)throw new Error('文件超过 16 MiB');
+          if(file.size>16*1024*1024)throw new Error(tr('文件超过 16 MiB'));
           const doc=await window.desktop.validate(JSON.parse(await file.text()));
-          showConfirm('导入白板','替换当前白板？当前内容保留在自动备份中。',()=>importDocument(doc));
+          showConfirm(tr('导入白板'),tr('替换当前白板？当前版本会自动备份。'),()=>importDocument(doc));
         }catch(error){showToast(error.message);}
       });
       async function openNative() {
@@ -1913,8 +1894,8 @@
       async function showMcp() {
         try {
           const info=await window.desktop.info({readOnly:document.getElementById('mcp-readonly').checked});
-          document.getElementById('mcp-path').textContent=info.file;
-          document.getElementById('mcp-config').value=info.config?JSON.stringify(info.config,null,2):info.help;
+          document.getElementById('mcp-path').textContent=info.config ? info.file : tr(info.file);
+          document.getElementById('mcp-config').value=info.config ? JSON.stringify(info.config,null,2) : '';
           const dialog=document.getElementById('mcp-dialog');if(!dialog.open)dialog.showModal();
         }catch(e){showToast(e.message);}
       }
@@ -1922,11 +1903,11 @@
       document.getElementById('btn-mcp').onclick=showMcp;
       document.getElementById('mcp-readonly').onchange=showMcp;
       document.getElementById('mcp-close').onclick=()=>document.getElementById('mcp-dialog').close();
-      document.getElementById('mcp-copy').onclick=async()=>{await window.desktop.copy(document.getElementById('mcp-config').value);showToast('已复制 MCP 配置');};
+      document.getElementById('mcp-copy').onclick=async()=>{await window.desktop.copy(document.getElementById('mcp-config').value);showToast(tr('已复制 MCP 配置'));};
       document.getElementById('mcp-reveal').onclick=()=>window.desktop.reveal();
       document.getElementById('sync-export').onclick=exportSnapshot;
       document.getElementById('sync-retry').onclick=()=>{conflict=false;document.getElementById('sync-banner').hidden=true;flushSave();};
-      document.getElementById('sync-reload').onclick=()=>showConfirm('读取最新版本','本地未保存修改将被替换；需要保留时请先导出副本。',async()=>{
+      document.getElementById('sync-reload').onclick=()=>showConfirm(tr('读取最新版本'),tr('载入后将替换本地编辑。可以先导出副本。'),async()=>{
         try{acceptDocument(await window.desktop.read());conflict=false;document.getElementById('sync-banner').hidden=true;}catch(e){showFailure(e);}
       });
       document.getElementById('btn-export-context').onclick=async()=>{
@@ -1939,7 +1920,7 @@
       window.desktop.onMenu(async action=>{
         if(action==='open')await openNative();
         if(action==='export')await exportSnapshot();
-        if(action==='save'){if(await flushSave())showToast('已保存');}
+        if(action==='save'){if(await flushSave())showToast(tr('已保存'));}
         if(action==='mcp')await showMcp();
       });
       window.addEventListener('beforeunload', e=>{
@@ -1949,7 +1930,7 @@
         document.activeElement?.blur();
         if(!quickInputBoxEl.classList.contains('hidden'))commitQuickInput();
         if(await flushSave())window.desktop.closeReady();
-        else showToast('尚有未保存内容，请先处理顶部提示再关闭');
+        else showToast(tr('尚有未保存的编辑，请先处理保存提示'));
       });
       // 初始化应用：磁盘是唯一权威来源，浏览器存储仅保留主题。
       async function init() {
@@ -1963,5 +1944,11 @@
           setInterval(pollDocument,1400);
         }catch(error){showFailure(error);}
       }
+      window.addEventListener('mindflow-language-change', () => {
+        if (!ready) return;
+        renderAll();
+        if (conflict) status(tr('未保存 · 请处理'));
+        else if (signature(snapshot()) === lastSavedContent) showSaved(documentMeta.revision);
+      });
       init();
     })();

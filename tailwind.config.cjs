@@ -1,5 +1,5 @@
 module.exports = {
-      content: ['./ui/**/*.{html,js}'],
+      content: ['./index.html', './ui/app.js', './ui/browser-entry.mjs'],
  darkMode: 'class',
       theme: {
         extend: {

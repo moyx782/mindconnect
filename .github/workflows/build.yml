@@ -1,9 +1,9 @@
-name: Test and release desktop
+name: 桌面版构建与发布 / Desktop builds and releases
 on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['src/**', 'ui/**', 'tests/**', 'scripts/**', 'examples/**', 'package*.json', 'tailwind.config.cjs', '.github/workflows/build.yml']
+    paths: ['docs/releases/**', 'index.html', 'src/**', 'ui/**', 'tests/**', 'scripts/**', 'examples/**', 'package*.json', 'tailwind.config.cjs', '.github/workflows/build.yml']
 permissions:
   contents: read
 jobs:
@@ -14,10 +14,10 @@ jobs:
         include:
           - os: windows-latest
             script: pack:win
-            asset: dist/MindFlow-1.0.0-win.zip
+            asset: dist/MindFlow-*-win.zip
           - os: ubuntu-latest
             script: pack:linux
-            asset: dist/MindFlow-1.0.0-linux-x64.tar.gz
+            asset: dist/MindFlow-*-linux-x64.tar.gz
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -38,7 +38,8 @@ jobs:
       - if: runner.os == 'Linux'
         run: |
           node scripts/check-packaged-mcp.mjs
-          tar -czf dist/MindFlow-1.0.0-linux-x64.tar.gz -C dist/linux-unpacked .
+          version=$(node -p "require('./package.json').version")
+          tar -czf "dist/MindFlow-${version}-linux-x64.tar.gz" -C dist/linux-unpacked .
       - uses: actions/upload-artifact@v4
         with:
           name: mindflow-${{ matrix.os }}
@@ -49,29 +50,32 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           pattern: mindflow-*
           path: release-assets
           merge-multiple: true
-      - name: Publish immutable v1.0.0 release if absent
+      - name: 发布版本与双语说明 / Publish release and bilingual notes
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_SHA: ${{ github.sha }}
         run: |
-          if gh release view v1.0.0 >/dev/null 2>&1; then
-            echo 'Release v1.0.0 already exists; leaving its tag and assets unchanged.'
-            exit 0
+          set -euo pipefail
+          tag="v$(node -p "require('./package.json').version")"
+          notes="docs/releases/${tag}.md"
+          for file in docs/releases/v*.md; do
+            previous=$(basename "$file" .md)
+            if [[ "$previous" != "$tag" ]]; then
+              title="MindFlow 桌面版 / MindFlow Desktop ${previous#v}"
+              if [[ "$(gh release view "$previous" --json body --jq .body)" != "$(cat "$file")" || "$(gh release view "$previous" --json name --jq .name)" != "$title" ]]; then
+                gh release edit "$previous" --title "$title" --notes-file "$file"
+              fi
+            fi
+          done
+          title="MindFlow 桌面版 / MindFlow Desktop ${tag#v}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" --title "$title" --notes-file "$notes"
+          else
+            gh release create "$tag" release-assets/* --target "$GITHUB_SHA" --title "$title" --notes-file "$notes"
           fi
-          cat > release-notes.md <<'NOTES'
-          MindFlow Desktop: local whiteboard, complete/context JSON export, and local stdio MCP.
-
-          - Windows x64: unzip and run MindFlow.exe. Keep the whole folder.
-          - Linux x64: extract and run ./mindflow-desktop.
-          - Built-in runtime; no separate Node.js installation needed.
-          - MCP config: open the app and click MCP 接入. Read-only by default.
-          - Packages are unsigned. Linux desktop workflows and real MCP read/write were tested; Windows was built and passed core/MCP tests in CI, but has not been manually GUI-tested.
-          - GitHub Pages browser edition stores data in the browser; it does not run the local MCP server.
-          NOTES
-          gh release create v1.0.0 release-assets/* --target "$RELEASE_SHA" --title 'MindFlow Desktop 1.0.0' --notes-file release-notes.md

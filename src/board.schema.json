@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "MindFlow document v1",
+  "title": "MindFlow 白板文档 / Whiteboard document v1",
   "type": "object",
   "additionalProperties": false,
   "properties": {

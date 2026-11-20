@@ -18,18 +18,18 @@ export class Store {
     try{return await fn();}finally{await release();}
   }
   async read() {
-    const stat=await fs.stat(this.file);if(stat.size>MAX_BYTES)throw new Error('白板超过 16 MiB 限制');
+    const stat=await fs.stat(this.file);if(stat.size>MAX_BYTES)throw new Error('白板超出 16 MiB / Board exceeds 16 MiB');
     return validateDocument(JSON.parse(await fs.readFile(this.file,'utf8')));
   }
   async init() {
     return this.locked(async()=>{
       try{return await this.read();}catch(e){if(e.code!=='ENOENT')throw e;}
-      const seed=JSON.parse(await fs.readFile(new URL('../examples/original-board.json',import.meta.url),'utf8'));
-      const doc=normalize(seed);await this.atomicWrite(doc,false);return doc;
+      const seed=JSON.parse(await fs.readFile(new URL('../examples/mindflow-board.json',import.meta.url),'utf8'));
+      const doc=normalize({title:seed.title,tokens:seed.tokens,edges:seed.edges,clusters:seed.clusters,drawings:seed.drawings});await this.atomicWrite(doc,false);return doc;
     });
   }
   async atomicWrite(doc,backup=true) {
-    const data=JSON.stringify(doc,null,2);if(Buffer.byteLength(data)>MAX_BYTES)throw new Error('白板超过 16 MiB 限制');
+    const data=JSON.stringify(doc,null,2);if(Buffer.byteLength(data)>MAX_BYTES)throw new Error('白板超出 16 MiB / Board exceeds 16 MiB');
     const temp=this.file+'.'+randomUUID()+'.tmp';
     try{
       const h=await fs.open(temp,'wx',0o600);try{await h.writeFile(data);await h.sync();}finally{await h.close();}
@@ -42,7 +42,7 @@ export class Store {
   async update(expectedRevision,fn) {
     return this.locked(async()=>{
       const current=await this.read();
-      if(!Number.isInteger(expectedRevision)||current.revision!==expectedRevision)throw new Error(`REVISION_CONFLICT: 预期 ${expectedRevision}，当前 ${current.revision}。请重新读取；本次修改未写入。`);
+      if(!Number.isInteger(expectedRevision)||current.revision!==expectedRevision)throw new Error(`REVISION_CONFLICT: 请重新读取白板 / Reload board (expected ${expectedRevision}, current ${current.revision})`);
       const next=await fn(structuredClone(current));next.boardId=current.boardId;next.revision=current.revision+1;next.updatedAt=new Date().toISOString();
       validateDocument(next);await this.atomicWrite(next);return next;
     });

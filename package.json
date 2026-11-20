@@ -1,7 +1,7 @@
 {
   "name": "mindflow-desktop",
-  "version": "1.0.0",
-  "description": "MindFlow local-first desktop whiteboard and MCP server",
+  "version": "1.0.1",
+  "description": "MindFlow 本地白板与 MCP 服务 / Local whiteboard and MCP server",
   "private": true,
   "type": "module",
   "main": "src/main.cjs",
@@ -38,12 +38,14 @@
     "productName": "MindFlow",
     "asar": true,
     "files": [
+      "index.html",
       "src/**",
-      "ui/**",
-      "examples/**",
-      "package.json",
-      "README.md",
-      "VALIDATION.md"
+      "ui/app.js",
+      "ui/language.js",
+      "ui/browser.js",
+      "ui/*.css",
+      "examples/mindflow-board.json",
+      "package.json"
     ],
     "win": {
       "target": "zip",

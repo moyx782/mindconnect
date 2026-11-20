@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {Store} from '../src/store.mjs';
 import {normalize,validateDocument,applyOperations,getContext} from '../src/model.mjs';
-const seed=JSON.parse(await readFile(new URL('../examples/original-board.json',import.meta.url)));
+const seed=JSON.parse(await readFile(new URL('./fixtures/legacy-board.json',import.meta.url)));
 const tmp=async t=>{const d=await mkdtemp(path.join(os.tmpdir(),'mindflow-'));t.after(()=>rm(d,{recursive:true,force:true}));return d;};
 test('legacy imports and canonical round trip preserve text, edges, drawings and viewport',()=>{
  const d=normalize({state:seed,viewport:{x:12,y:25,scale:0.5}});assert.deepEqual(d.tokens,seed.tokens);assert.deepEqual(d.edges,seed.edges);

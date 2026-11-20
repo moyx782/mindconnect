@@ -1,0 +1,171 @@
+// Translate only the application shell captured before any board is rendered.
+// User-authored text and imported JSON never enter this list.
+(() => {
+  const english = {
+    "MindFlow · 自由白板": "MindFlow · Whiteboard",
+    "输入词块，按回车添加": "Type a card and press Enter",
+    "回车确认": "Press Enter to add",
+    "点击修改白板标题": "Edit board title",
+    "已保存": "Saved",
+    "撤销 (Ctrl/Cmd + Z)": "Undo (Ctrl/Cmd + Z)",
+    "重做 (Ctrl/Cmd + Shift + Z)": "Redo (Ctrl/Cmd + Shift + Z)",
+    "示例": "Sample",
+    "清空当前画布": "Clear the board",
+    "清空": "Clear",
+    "English / 中文": "English / 中文",
+    "打开": "Open",
+    "MCP 接入": "MCP setup",
+    "导出": "Export",
+    "切换深色/浅色模式": "Switch light or dark theme",
+    "白色或灰色": "Neutral",
+    "灵感黄 · 核心点子": "Yellow · Main idea",
+    "核心蓝 · 结构/方向": "Blue · Direction",
+    "行动绿 · 可执行方案": "Green · Action",
+    "洞察紫 · 用户痛点/深度思考": "Purple · Insight",
+    "质疑红 · 风险/待验证": "Red · Question",
+    "添加相连的词块 (Tab)": "Add a connected card (Tab)",
+    "+ 分支": "+ Branch",
+    "将所选词块编为一组 (Ctrl/Cmd + G)": "Group selected cards (Ctrl/Cmd + G)",
+    "编组": "Group",
+    "删除选中项 (Delete / Backspace)": "Delete selection (Delete / Backspace)",
+    "双击空白处": "Double-click empty space",
+    "Ctrl+单击": "Ctrl+click",
+    "选中或取消选择": "to toggle selection",
+    "选择与框选指针 (V)": "Select cards or drag a selection (V)",
+    "选择": "Select",
+    "自由画笔涂鸦/圈点 (P)": "Draw freehand (P)",
+    "画笔": "Pen",
+    "拖拽拉出矩形框 (R)": "Draw a rectangle (R)",
+    "矩形": "Rectangle",
+    "拖拽拉出圆形/椭圆标记 (O)": "Draw an ellipse (O)",
+    "圆形": "Ellipse",
+    "拖拽绘制直线，按住 Shift 吸附 45° (L)": "Draw a line. Hold Shift to snap to 45° (L)",
+    "直线": "Line",
+    "切换新绘制笔迹与图形的默认颜色": "Drawing color",
+    "缩小": "Zoom out",
+    "重置为 100%": "Reset to 100%",
+    "放大": "Zoom in",
+    "缩放以显示整张白板": "Fit the board to the window",
+    "适应画布": "Fit",
+    "快捷键": "Keyboard shortcuts",
+    "添加词块": "Add a card",
+    "双击画布空白处": "Double-click empty space",
+    "切换工具（指针/画笔/矩形/圆/直线）": "Switch tools (select / pen / rectangle / ellipse / line)",
+    "添加相连的词块": "Add a connected card",
+    "悬停点 + 或按 Tab": "Click + on a card or press Tab",
+    "连接词块": "Connect cards",
+    "拖拽卡片边缘蓝点": "Drag a handle on the card edge",
+    "选择和分组": "Select and group",
+    "Ctrl/Cmd+单击 / 框选 / Ctrl+G": "Ctrl/Cmd+click / drag to select / Ctrl+G",
+    "平移画布": "Pan the board",
+    "空格+拖拽 / 中键拖拽": "Space+drag or middle-button drag",
+    "撤销 / 重做 / 删除": "Undo / redo / delete",
+    "导出白板": "Export board",
+    "选择 Markdown 大纲或可恢复的 JSON 备份。": "Choose a Markdown outline or a JSON backup you can restore.",
+    "Markdown 大纲": "Markdown outline",
+    "JSON 完整备份": "Full JSON backup",
+    "导入 JSON 备份": "Import JSON backup",
+    "复制内容": "Copy",
+    "下载文件": "Download",
+    "确认操作": "Confirm",
+    "确定要执行此操作吗？": "Continue?",
+    "取消": "Cancel",
+    "确定": "Confirm",
+    "提示信息": "Notification",
+    "导出本地副本": "Export local copy",
+    "读取最新": "Load latest version",
+    "重试保存": "Retry save",
+    "关闭": "Close",
+    "将配置复制到本地 MCP 客户端，重新加载连接即可读取白板。": "Copy the configuration into your local MCP client and reload the connection.",
+    "只读访问（取消后允许修改）": "Read-only access (clear to allow edits)",
+    "MCP 配置": "MCP configuration",
+    "复制 MCP 配置": "Copy MCP configuration",
+    "打开数据目录": "Open data folder",
+    "导出白板内容": "Export board content",
+    "选择要交给 AI 的词块、连线和图形。": "Choose which cards, connections and drawings to share with an AI client.",
+    "导出范围": "Export scope",
+    "仅当前选区": "Selection",
+    "整张白板": "Entire board",
+    "导出内容 JSON": "Export content JSON",
+    "需要在另一台设备恢复白板时，请使用「导出 → JSON 完整备份」。": "To restore this board on another device, choose Export → Full JSON backup.",
+    "未命名白板": "Untitled board",
+    "未命名群组": "Untitled group",
+    "输入词块内容，按回车添加": "Type a card and press Enter",
+    "输入新词块内容，按回车连接": "Type a connected card and press Enter",
+    "拖到另一个词块以连接": "Drag to connect to another card",
+    "输入关系标签...": "Connection label",
+    "群组": "Group",
+    "已撤销上一步操作": "Undone",
+    "已重做操作": "Redone",
+    "未保存 · 请处理": "Unsaved changes",
+    "另有修改已保存。请先导出本地副本，再载入最新版本。": "Another change was saved. Export your local copy before loading the latest version.",
+    "保存失败，本地编辑仍保留": "Could not save. Your edits are still here",
+    "浏览器已保存": "Saved in browser",
+    "保存中…": "Saving…",
+    "待保存…": "Waiting to save…",
+    "已载入最新版本": "Loaded latest version",
+    "已创建群组，双击标题可重命名": "Group created. Double-click its title to rename it.",
+    "白板大纲": "Board outline",
+    "- *(暂无归类词条)*": "- *(No cards in this group)*",
+    "## 💡 未分组词块": "## Ungrouped cards",
+    "## 词块": "## Ideas",
+    "加载示例白板": "Load sample board",
+    "用示例替换当前白板？可以撤销此操作。": "Replace this board with the sample? You can undo this.",
+    "已加载示例白板": "Sample board loaded",
+    "清除白板上的所有内容？可以撤销此操作。": "Clear everything on this board? You can undo this.",
+    "白板已清空": "Board cleared",
+    "已复制": "Copied",
+    "已导出文件": "File exported",
+    "已导入白板": "Board imported",
+    "文件超过 16 MiB": "File exceeds 16 MiB",
+    "导入白板": "Import board",
+    "替换当前白板？当前版本会自动备份。": "Replace the current board? A backup of this revision will be kept.",
+    "已复制 MCP 配置": "MCP configuration copied",
+    "读取最新版本": "Load latest version",
+    "载入后将替换本地编辑。可以先导出副本。": "Loading will replace local edits. You can export a copy first.",
+    "尚有未保存的编辑，请先处理保存提示": "Resolve the save notification before closing.",
+    "JSON 与 MCP": "JSON and MCP",
+    "下载桌面版，打开「MCP 接入」即可连接 AI 客户端。": "Download the desktop app and open MCP setup to connect an AI client.",
+    "数据保存在当前浏览器。": "Saved in this browser.",
+    "Windows 下载": "Download for Windows",
+    "Linux 下载": "Download for Linux",
+    "源码与说明": "Source and guide",
+    "导入": "Import",
+    "编辑白板标题": "Edit board title",
+    "清除浏览器数据前，请先导出完整备份。": "Export a full backup before clearing browser data."
+};
+  let language = localStorage.getItem('mindflow-language') ||
+    (navigator.language.toLowerCase().startsWith('zh') ? 'zh' : 'en');
+  const translate = text => language === 'en' ? (english[text] ?? text) : text;
+  const bindings = [];
+  const walker = document.createTreeWalker(document.documentElement, NodeFilter.SHOW_TEXT);
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    const original = node.textContent;
+    const label = original.trim();
+    if (Object.hasOwn(english, label)) {
+      bindings.push(() => { node.textContent = original.replace(label, translate(label)); });
+    }
+  }
+  for (const element of document.querySelectorAll('[title], [aria-label], [placeholder]')) {
+    for (const attribute of ['title', 'aria-label', 'placeholder']) {
+      const label = element.getAttribute(attribute);
+      if (Object.hasOwn(english, label)) {
+        bindings.push(() => element.setAttribute(attribute, translate(label)));
+      }
+    }
+  }
+  function apply() {
+    document.documentElement.lang = language === 'en' ? 'en' : 'zh-CN';
+    bindings.forEach(update => update());
+    document.getElementById('btn-language').textContent = language === 'en' ? '中文' : 'English';
+  }
+  window.mindflowLanguage = { translate };
+  document.getElementById('btn-language').addEventListener('click', () => {
+    language = language === 'en' ? 'zh' : 'en';
+    localStorage.setItem('mindflow-language', language);
+    apply();
+    window.dispatchEvent(new Event('mindflow-language-change'));
+  });
+  apply();
+})();

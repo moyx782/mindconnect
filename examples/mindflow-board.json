@@ -4,53 +4,53 @@
   "boardId": "board_original_example",
   "revision": 0,
   "updatedAt": "2026-11-20T14:25:24.520Z",
-  "title": "新产品灵感发散 · AI 语音笔记",
+  "title": "语音笔记 / Voice notes",
   "tokens": [
     {
       "id": "tk_root",
-      "text": "随时随地语音捕捉灵感",
+      "text": "随手录音 / Record an idea",
       "x": -70,
       "y": -30,
       "color": "yellow"
     },
     {
       "id": "tk_1",
-      "text": "打字太慢，想法转瞬即逝",
+      "text": "来不及打字 / No time to type",
       "x": -340,
       "y": -100,
       "color": "purple"
     },
     {
       "id": "tk_2",
-      "text": "通勤/散步时双手被占用",
+      "text": "双手被占用 / Hands busy",
       "x": -340,
       "y": 10,
       "color": "purple"
     },
     {
       "id": "tk_3",
-      "text": "锁屏一键录音 Widget",
+      "text": "锁屏录音 / Lock screen recorder",
       "x": 170,
       "y": -120,
       "color": "blue"
     },
     {
       "id": "tk_4",
-      "text": "自动提炼关键词 Token",
+      "text": "提取关键词 / Extract keywords",
       "x": 170,
       "y": -20,
       "color": "green"
     },
     {
       "id": "tk_5",
-      "text": "自动归类到主题白板",
+      "text": "按主题整理 / Group by topic",
       "x": 170,
       "y": 80,
       "color": "green"
     },
     {
       "id": "tk_6",
-      "text": "嘈杂环境语音识别准确率？",
+      "text": "嘈杂时能听清吗？ / Clear in noise?",
       "x": -70,
       "y": 130,
       "color": "red"
@@ -61,43 +61,43 @@
       "id": "ed_1",
       "source": "tk_1",
       "target": "tk_root",
-      "label": "催生需求"
+      "label": "需求 / Need"
     },
     {
       "id": "ed_2",
       "source": "tk_2",
       "target": "tk_root",
-      "label": "场景"
+      "label": "场景 / Setting"
     },
     {
       "id": "ed_3",
       "source": "tk_root",
       "target": "tk_3",
-      "label": "入口"
+      "label": "入口 / Entry"
     },
     {
       "id": "ed_4",
       "source": "tk_root",
       "target": "tk_4",
-      "label": "AI 处理"
+      "label": "处理 / Process"
     },
     {
       "id": "ed_5",
       "source": "tk_4",
       "target": "tk_5",
-      "label": "结构化"
+      "label": "归类 / Group"
     },
     {
       "id": "ed_6",
       "source": "tk_root",
       "target": "tk_6",
-      "label": "风险点"
+      "label": "风险 / Risk"
     }
   ],
   "clusters": [
     {
       "id": "cl_1",
-      "title": "核心痛点洞察",
+      "title": "使用场景 / Use cases",
       "x": -380,
       "y": -170,
       "width": 270,
@@ -106,7 +106,7 @@
     },
     {
       "id": "cl_2",
-      "title": "MVP 核心功能",
+      "title": "主要功能 / Features",
       "x": 130,
       "y": -190,
       "width": 320,
