@@ -9,7 +9,7 @@
 2. Spatial Layout & Coordinates:
    - Infinite 2D canvas around (0, 0). Card size ~160x44px.
    - Keep horizontal column spacing dx >= 240px and vertical sibling spacing dy >= 76px to avoid overlap.
-   - Cards support Markdown image syntax ![alt](data:image/...) and file/web link syntax [name](url).
+   - Cards natively render full Markdown (headings, bold/italic/strikethrough, inline/fenced code, lists, task checkboxes, blockquotes, tables, images ![alt](url), and links [name](url)).
    - A card (x, y) is inside a group (cluster) when (x+60, y+20) falls within [cluster.x..cluster.x+width, cluster.y..cluster.y+height].
    - Leave padding when wrapping cards in a cluster: x = minX - 32, y = minY - 52, width >= (maxX - minX) + 200, height >= (maxY - minY) + 110.
 3. MCP & JSON Workflow:
@@ -23,7 +23,7 @@
    - red (\u8D28\u7591\u7EA2): \u98CE\u9669\u70B9\u3001\u963B\u585E\u9879\u6216\u5F85\u9A8C\u8BC1\u5047\u8BBE
    - neutral (\u4E2D\u6027\u767D/\u7070): \u8865\u5145\u8BF4\u660E\u6216\u80CC\u666F\u8BB0\u5F55
 2. \u7A7A\u95F4\u5750\u6807\u4E0E\u9632\u91CD\u53E0\u6392\u7248:
-   - \u753B\u5E03\u4EE5 (0, 0) \u4E3A\u4E2D\u5FC3\uFF0C\u5355\u4E2A\u8BCD\u5757\u7EA6 160x44px\uFF1B\u8BCD\u5757\u6587\u672C\u539F\u751F\u652F\u6301 Markdown \u56FE\u7247\u8BED\u6CD5 ![\u540D\u79F0](data:image/...) \u4E0E\u6587\u4EF6/\u7F51\u9875\u94FE\u63A5\u8BED\u6CD5 [\u6587\u4EF6\u540D](url)\u3002
+   - \u753B\u5E03\u4EE5 (0, 0) \u4E3A\u4E2D\u5FC3\uFF0C\u5355\u4E2A\u8BCD\u5757\u7EA6 160x44px\uFF1B\u8BCD\u5757\u6587\u672C\u539F\u751F\u652F\u6301\u5B8C\u6574 Markdown \u81EA\u52A8\u6E32\u67D3\uFF08\u6807\u9898\u3001\u7C97\u4F53/\u659C\u4F53/\u5220\u9664\u7EBF\u3001\u884C\u5185\u4EE3\u7801\u4E0E\u4EE3\u7801\u5757\u3001\u5217\u8868\u3001\u4EFB\u52A1\u590D\u9009\u6846\u3001\u5F15\u7528\u5757\u3001\u8868\u683C\u3001\u56FE\u7247 ![\u540D\u79F0](url) \u4E0E\u6587\u4EF6/\u7F51\u9875\u94FE\u63A5 [\u6587\u4EF6\u540D](url)\uFF09\u3002
    - \u5DE6\u53F3\u5206\u652F\u5217\u95F4\u8DDD\u5EFA\u8BAE dx >= 240px\uFF0C\u4E0A\u4E0B\u540C\u7EA7\u8BCD\u5757\u95F4\u8DDD\u5EFA\u8BAE dy >= 76px\uFF0C\u907F\u514D\u5361\u7247\u91CD\u53E0\u3002
    - \u7A7A\u95F4\u7FA4\u7EC4 (cluster) \u5F52\u5C5E\u5224\u5B9A\uFF1A\u8BCD\u5757\u4E2D\u5FC3 (t.x + 60, t.y + 20) \u843D\u5728\u7FA4\u7EC4\u77E9\u5F62\u5185\u5373\u89C6\u4E3A\u5F52\u5C5E\u8BE5\u7FA4\u7EC4\u3002\u5305\u88F9\u8BCD\u5757\u65F6\u5EFA\u8BAE\u9884\u7559\u5185\u8FB9\u8DDD\uFF1Ax = minX - 32, y = minY - 52, width >= (maxX - minX) + 200, height >= (maxY - minY) + 110\u3002
    - \u663E\u5F0F\u5173\u7CFB\u8BF7\u59CB\u7EC8\u521B\u5EFA\u8FDE\u7EBF (edges: { id, source, target, label })\uFF0Clabel \u4FDD\u6301 2-6 \u5B57\u7CBE\u70BC\u5173\u7CFB\u52A8\u8BCD\u3002

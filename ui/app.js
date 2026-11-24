@@ -707,12 +707,29 @@
         return /^(https?:\/\/|mailto:|data:[a-zA-Z0-9.+/-]+;base64,)/i.test(trimmed);
       }
 
-      // 将 File 对象转换为 Markdown 链接语法：图片转为 ![name](data:image/...)，文件转为 [name](data:...)
+      function isMarkdownFile(file) {
+        if (!file) return false;
+        const name = String(file.name || '').toLowerCase();
+        const type = String(file.type || '').toLowerCase();
+        return /\.(md|markdown|mdown|mkd)$/i.test(name) || type === 'text/markdown' || type === 'text/x-markdown';
+      }
+
+      // 将 File 对象转换为 Markdown 内容或链接：.md 文件直接读取为 Markdown 文本，图片转为 ![name](data:image/...)，其他文件转为 [name](data:...)
       const MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024;
       function fileToMarkdownLink(file) {
         return new Promise((resolve, reject) => {
           if (file.size > MAX_ATTACHMENT_BYTES) {
             reject(new Error(tr('单个附件请勿超过 4 MiB')));
+            return;
+          }
+          if (isMarkdownFile(file)) {
+            const textReader = new FileReader();
+            textReader.onload = () => {
+              const mdText = String(textReader.result || '').replace(/\r\n?/g, '\n').trim();
+              resolve(mdText || (file.name || 'Markdown'));
+            };
+            textReader.onerror = () => reject(new Error('Failed to read Markdown file'));
+            textReader.readAsText(file, 'UTF-8');
             return;
           }
           const reader = new FileReader();
@@ -727,63 +744,373 @@
         });
       }
 
-      // 解析词块文本中的 Markdown 图片 ![alt](url) 与文件/网页链接 [label](url) 并构建安全 DOM
-      function renderTokenMarkdownContent(container, text) {
-        container.innerHTML = '';
+      // 检测文本是否包含块级 Markdown 语法（标题、列表、任务清单、代码块、引用、分隔线、表格）
+      function hasBlockMarkdownSyntax(raw) {
+        if (!raw) return false;
+        if (/^\s*(`{3,}|~{3,})/m.test(raw)) return true;
+        if (/^\s*#{1,6}\s+\S/m.test(raw)) return true;
+        if (/^\s*(?:[-*+]|\d+\.)\s+(?:\[[ xX]\]\s+)?\S/m.test(raw)) return true;
+        if (/^\s*>\s*\S/m.test(raw)) return true;
+        if (/^\s*(?:---+|___+|\*\*\*+)\s*$/m.test(raw)) return true;
+        if (/\|/.test(raw) && /^\s*\|?(?:\s*:?-{2,}:?\s*\|)+\s*:?-{2,}:?\s*\|?\s*$/m.test(raw)) return true;
+        return false;
+      }
+
+      // 解析行内 Markdown（行内代码、图片、链接、裸 URL、粗斜体、粗体、删除线、高亮、斜体）并构建安全 DOM
+      function appendInlineMarkdown(parent, text) {
         const raw = String(text || '');
-        const mdRegex = /(!?)\[([^\]]*)\]\(([^)\s]+)\)/g;
+        if (!raw) return;
+        const inlineRegex = /`([^`\n]+)`|(!?)\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)|(https?:\/\/[^\s<)\]]+)|\*\*\*([^\n]+?)\*\*\*|___([^\n]+?)___|\*\*([^\n*]+?)\*\*|__([^\n_]+?)__|~~([^\n~]+?)~~|==([^\n=]+?)==|\*([^\n*\s](?:[^\n*]*?[^\n*\s])?)\*|(?:^|(?<=[\s([{"'，。！？；：、]))_([^\n_\s](?:[^\n_]*?[^\n_\s])?)_(?=$|[\s)\]}.,!?:;"'，。！？；：、])/g;
         let lastIndex = 0;
         let match;
 
-        while ((match = mdRegex.exec(raw)) !== null) {
+        while ((match = inlineRegex.exec(raw)) !== null) {
           if (match.index > lastIndex) {
-            container.appendChild(document.createTextNode(raw.slice(lastIndex, match.index)));
+            parent.appendChild(document.createTextNode(raw.slice(lastIndex, match.index)));
           }
-          const isImage = match[1] === '!';
-          const label = match[2] || (isImage ? tr('粘贴图片') : tr('附件'));
-          const url = match[3];
 
-          if (isImage && /^data:image\//i.test(url)) {
-            const wrap = document.createElement('div');
-            wrap.className = 'my-1';
-            const img = document.createElement('img');
-            img.src = url;
-            img.alt = label;
-            img.className = 'token-md-img';
-            img.addEventListener('load', () => renderEdges());
-            wrap.appendChild(img);
-            if (label) {
-              const cap = document.createElement('span');
-              cap.className = 'token-md-caption';
-              cap.textContent = label;
-              wrap.appendChild(cap);
+          if (match[1] !== undefined) {
+            // 行内代码 `code`
+            const codeEl = document.createElement('code');
+            codeEl.className = 'token-md-inline-code';
+            codeEl.textContent = match[1];
+            parent.appendChild(codeEl);
+          } else if (match[2] !== undefined) {
+            // 图片 ![alt](url) 或 链接 [label](url)
+            const isImage = match[2] === '!';
+            const label = match[3] || (isImage ? tr('粘贴图片') : tr('附件'));
+            const url = match[4];
+
+            if (isImage && (/^data:image\//i.test(url) || /^https?:\/\//i.test(url))) {
+              const wrap = document.createElement('div');
+              wrap.className = 'my-1';
+              const img = document.createElement('img');
+              img.src = url;
+              img.alt = label;
+              img.className = 'token-md-img';
+              img.addEventListener('load', () => renderEdges());
+              wrap.appendChild(img);
+              if (label) {
+                const cap = document.createElement('span');
+                cap.className = 'token-md-caption';
+                cap.textContent = label;
+                wrap.appendChild(cap);
+              }
+              parent.appendChild(wrap);
+            } else if (isSafeMarkdownUrl(url)) {
+              const a = document.createElement('a');
+              a.href = url;
+              a.className = 'token-md-link';
+              a.title = `${label} (${tr('点击下载或打开附件')})`;
+              if (url.startsWith('data:')) {
+                a.download = label;
+              } else {
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+              }
+              a.textContent = `📎 ${label}`;
+              a.addEventListener('pointerdown', (e) => e.stopPropagation());
+              a.addEventListener('click', (e) => e.stopPropagation());
+              parent.appendChild(a);
+            } else {
+              parent.appendChild(document.createTextNode(match[0]));
             }
-            container.appendChild(wrap);
-          } else if (isSafeMarkdownUrl(url)) {
+          } else if (match[5] !== undefined) {
+            // 裸链接 https://...
+            const url = match[5];
             const a = document.createElement('a');
             a.href = url;
             a.className = 'token-md-link';
-            a.title = `${label} (${tr('点击下载或打开附件')})`;
-            if (url.startsWith('data:')) {
-              a.download = label;
-            } else {
-              a.target = '_blank';
-              a.rel = 'noopener noreferrer';
-            }
-            a.textContent = `📎 ${label}`;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            a.title = url;
+            a.textContent = `📎 ${url}`;
             a.addEventListener('pointerdown', (e) => e.stopPropagation());
             a.addEventListener('click', (e) => e.stopPropagation());
-            container.appendChild(a);
-          } else {
-            container.appendChild(document.createTextNode(match[0]));
+            parent.appendChild(a);
+          } else if (match[6] !== undefined || match[7] !== undefined) {
+            // 粗斜体 ***text*** 或 ___text___
+            const strong = document.createElement('strong');
+            strong.className = 'token-md-strong';
+            const em = document.createElement('em');
+            em.className = 'token-md-em';
+            appendInlineMarkdown(em, match[6] ?? match[7]);
+            strong.appendChild(em);
+            parent.appendChild(strong);
+          } else if (match[8] !== undefined || match[9] !== undefined) {
+            // 粗体 **text** 或 __text__
+            const strong = document.createElement('strong');
+            strong.className = 'token-md-strong';
+            appendInlineMarkdown(strong, match[8] ?? match[9]);
+            parent.appendChild(strong);
+          } else if (match[10] !== undefined) {
+            // 删除线 ~~text~~
+            const del = document.createElement('del');
+            del.className = 'token-md-del';
+            appendInlineMarkdown(del, match[10]);
+            parent.appendChild(del);
+          } else if (match[11] !== undefined) {
+            // 高亮 ==text==
+            const mark = document.createElement('mark');
+            mark.className = 'token-md-mark';
+            appendInlineMarkdown(mark, match[11]);
+            parent.appendChild(mark);
+          } else if (match[12] !== undefined || match[13] !== undefined) {
+            // 斜体 *text* 或 _text_
+            const em = document.createElement('em');
+            em.className = 'token-md-em';
+            appendInlineMarkdown(em, match[12] ?? match[13]);
+            parent.appendChild(em);
           }
 
-          lastIndex = mdRegex.lastIndex;
+          lastIndex = inlineRegex.lastIndex;
         }
 
         if (lastIndex < raw.length) {
-          container.appendChild(document.createTextNode(raw.slice(lastIndex)));
+          parent.appendChild(document.createTextNode(raw.slice(lastIndex)));
         }
+      }
+
+      // 解析词块文本中的完整 Markdown（标题、列表、任务清单、代码块、表格、引用、行内样式、图片与附件链接）并构建安全 DOM
+      function renderTokenMarkdownContent(container, text, token = null) {
+        container.innerHTML = '';
+        const raw = String(text || '').replace(/\r\n?/g, '\n');
+
+        if (!hasBlockMarkdownSyntax(raw)) {
+          container.classList.remove('token-md-blocks');
+          appendInlineMarkdown(container, raw);
+          return false;
+        }
+
+        container.classList.add('token-md-blocks');
+        const lines = raw.split('\n');
+        let i = 0;
+
+        const isTableSeparator = (line) => /^\s*\|?(?:\s*:?-{2,}:?\s*\|)+\s*:?-{2,}:?\s*\|?\s*$/.test(line || '');
+        const splitTableRow = (line) => {
+          let trimmed = String(line || '').trim();
+          if (trimmed.startsWith('|')) trimmed = trimmed.slice(1);
+          if (trimmed.endsWith('|')) trimmed = trimmed.slice(0, -1);
+          return trimmed.split('|').map(c => c.trim());
+        };
+
+        while (i < lines.length) {
+          const line = lines[i];
+
+          // 1. 空行跳过
+          if (!line.trim()) {
+            i++;
+            continue;
+          }
+
+          // 2. 围栏代码块 ```lang ... ``` 或 ~~~
+          const fenceMatch = line.match(/^\s*(`{3,}|~{3,})\s*([^\s`~]*)\s*$/);
+          if (fenceMatch) {
+            const fence = fenceMatch[1];
+            const lang = fenceMatch[2] || '';
+            const codeLines = [];
+            i++;
+            while (i < lines.length && !lines[i].match(new RegExp(`^\\s*${fence[0]}{${fence.length},}\\s*$`))) {
+              codeLines.push(lines[i]);
+              i++;
+            }
+            if (i < lines.length) i++; // 跳过闭合围栏
+
+            const wrap = document.createElement('div');
+            wrap.className = 'token-md-code-wrap';
+            if (lang) {
+              const langEl = document.createElement('div');
+              langEl.className = 'token-md-code-lang';
+              langEl.textContent = lang;
+              wrap.appendChild(langEl);
+            }
+            const pre = document.createElement('pre');
+            pre.className = 'token-md-pre';
+            const code = document.createElement('code');
+            code.textContent = codeLines.join('\n');
+            pre.appendChild(code);
+            wrap.appendChild(pre);
+            container.appendChild(wrap);
+            continue;
+          }
+
+          // 3. 水平分隔线 --- / *** / ___
+          if (/^\s*(?:---+|___+|\*\*\*+)\s*$/.test(line)) {
+            const hr = document.createElement('hr');
+            hr.className = 'token-md-hr';
+            container.appendChild(hr);
+            i++;
+            continue;
+          }
+
+          // 4. ATX 标题 # ~ ######
+          const headingMatch = line.match(/^\s*(#{1,6})\s+(.+?)\s*#*$/);
+          if (headingMatch) {
+            const level = headingMatch[1].length;
+            const hEl = document.createElement('div');
+            hEl.className = `token-md-heading token-md-h${level}`;
+            appendInlineMarkdown(hEl, headingMatch[2]);
+            container.appendChild(hEl);
+            i++;
+            continue;
+          }
+
+          // 5. GFM 管道表格
+          if (line.includes('|') && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
+            const headerCells = splitTableRow(line);
+            const alignCells = splitTableRow(lines[i + 1]).map(sep => {
+              if (sep.startsWith(':') && sep.endsWith(':')) return 'center';
+              if (sep.endsWith(':')) return 'right';
+              return 'left';
+            });
+            i += 2;
+
+            const tableWrap = document.createElement('div');
+            tableWrap.className = 'token-md-table-wrap';
+            const table = document.createElement('table');
+            table.className = 'token-md-table';
+
+            const thead = document.createElement('thead');
+            const headTr = document.createElement('tr');
+            headerCells.forEach((cellText, colIdx) => {
+              const th = document.createElement('th');
+              th.style.textAlign = alignCells[colIdx] || 'left';
+              appendInlineMarkdown(th, cellText);
+              headTr.appendChild(th);
+            });
+            thead.appendChild(headTr);
+            table.appendChild(thead);
+
+            const tbody = document.createElement('tbody');
+            while (i < lines.length && lines[i].trim() && lines[i].includes('|')) {
+              const rowCells = splitTableRow(lines[i]);
+              const trEl = document.createElement('tr');
+              headerCells.forEach((_, colIdx) => {
+                const td = document.createElement('td');
+                td.style.textAlign = alignCells[colIdx] || 'left';
+                appendInlineMarkdown(td, rowCells[colIdx] ?? '');
+                trEl.appendChild(td);
+              });
+              tbody.appendChild(trEl);
+              i++;
+            }
+            table.appendChild(tbody);
+            tableWrap.appendChild(table);
+            container.appendChild(tableWrap);
+            continue;
+          }
+
+          // 6. 引用块 > ...
+          if (/^\s*>\s?/.test(line)) {
+            const quoteLines = [];
+            while (i < lines.length && /^\s*>\s?/.test(lines[i])) {
+              quoteLines.push(lines[i].replace(/^\s*>\s?/, ''));
+              i++;
+            }
+            const bq = document.createElement('blockquote');
+            bq.className = 'token-md-quote';
+            quoteLines.forEach((ql, idx) => {
+              if (idx > 0) bq.appendChild(document.createElement('br'));
+              appendInlineMarkdown(bq, ql);
+            });
+            container.appendChild(bq);
+            continue;
+          }
+
+          // 7. 列表（无序列表 / 有序列表 / 任务清单 - [ ] / - [x]）
+          const listMatch = line.match(/^(\s*)([-*+]|\d+\.)\s+(.*)$/);
+          if (listMatch) {
+            const isOrdered = /^\d+\.$/.test(listMatch[2]);
+            const listEl = document.createElement(isOrdered ? 'ol' : 'ul');
+            listEl.className = isOrdered ? 'token-md-olist' : 'token-md-list';
+            if (isOrdered) {
+              const startNum = parseInt(listMatch[2], 10);
+              if (!Number.isNaN(startNum) && startNum !== 1) listEl.start = startNum;
+            }
+
+            while (i < lines.length) {
+              const itemMatch = lines[i].match(/^(\s*)([-*+]|\d+\.)\s+(.*)$/);
+              if (!itemMatch) break;
+              const currentLineIndex = i;
+              const indentSpaces = itemMatch[1].replace(/\t/g, '  ').length;
+              const itemContent = itemMatch[3];
+              const taskMatch = itemContent.match(/^\[([ xX])\]\s+(.*)$/);
+
+              const li = document.createElement('li');
+              if (taskMatch) {
+                const isChecked = taskMatch[1].toLowerCase() === 'x';
+                li.className = 'token-md-li token-md-task-li';
+                if (indentSpaces >= 2) {
+                  li.style.marginLeft = `${Math.min(4, Math.floor(indentSpaces / 2)) * 12 - 15}px`;
+                }
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.checked = isChecked;
+                checkbox.className = 'token-md-checkbox';
+                checkbox.addEventListener('pointerdown', (e) => e.stopPropagation());
+                checkbox.addEventListener('click', (e) => e.stopPropagation());
+                checkbox.addEventListener('dblclick', (e) => e.stopPropagation());
+                if (token) {
+                  checkbox.addEventListener('change', (e) => {
+                    e.stopPropagation();
+                    const updatedLines = String(token.text || '').replace(/\r\n?/g, '\n').split('\n');
+                    if (updatedLines[currentLineIndex] !== undefined) {
+                      pushHistory();
+                      updatedLines[currentLineIndex] = updatedLines[currentLineIndex].replace(
+                        /^(\s*(?:[-*+]|\d+\.)\s+)\[[ xX]\]/,
+                        `$1[${checkbox.checked ? 'x' : ' '}]`
+                      );
+                      token.text = updatedLines.join('\n');
+                      renderTokens();
+                      renderEdges();
+                      saveToLocalStorage();
+                    }
+                  });
+                }
+                const span = document.createElement('span');
+                if (isChecked) span.className = 'token-md-task-done';
+                appendInlineMarkdown(span, taskMatch[2]);
+                li.append(checkbox, span);
+              } else {
+                li.className = 'token-md-li';
+                if (indentSpaces >= 2) {
+                  li.style.marginLeft = `${Math.min(4, Math.floor(indentSpaces / 2)) * 12}px`;
+                }
+                appendInlineMarkdown(li, itemContent);
+              }
+              listEl.appendChild(li);
+              i++;
+            }
+            container.appendChild(listEl);
+            continue;
+          }
+
+          // 8. 普通段落文本块
+          const paraLines = [];
+          while (
+            i < lines.length &&
+            lines[i].trim() &&
+            !lines[i].match(/^\s*(`{3,}|~{3,})/) &&
+            !lines[i].match(/^\s*(?:---+|___+|\*\*\*+)\s*$/) &&
+            !lines[i].match(/^\s*#{1,6}\s+/) &&
+            !lines[i].match(/^\s*>\s?/) &&
+            !lines[i].match(/^(\s*)([-*+]|\d+\.)\s+/) &&
+            !(lines[i].includes('|') && i + 1 < lines.length && isTableSeparator(lines[i + 1]))
+          ) {
+            paraLines.push(lines[i]);
+            i++;
+          }
+          if (paraLines.length > 0) {
+            const pEl = document.createElement('div');
+            pEl.className = 'token-md-p';
+            paraLines.forEach((pl, idx) => {
+              if (idx > 0) pEl.appendChild(document.createElement('br'));
+              appendInlineMarkdown(pEl, pl);
+            });
+            container.appendChild(pEl);
+          }
+        }
+        return true;
       }
 
       // 渲染词条卡片 (Tokens)
@@ -800,7 +1127,8 @@
 
           const textSpan = document.createElement('div');
           textSpan.className = 'token-text pointer-events-none whitespace-pre-wrap';
-          renderTokenMarkdownContent(textSpan, token.text);
+          const isRichBlockMd = renderTokenMarkdownContent(textSpan, token.text, token);
+          if (isRichBlockMd) el.classList.add('token-node-md');
           el.appendChild(textSpan);
 
           // 右侧快捷发散按钮 (+)
@@ -894,15 +1222,20 @@
         });
       }
 
-      // 原地编辑 Token 文本
+      // 原地编辑 Token 文本（支持多行 Markdown 编辑，失焦或回车即自动渲染）
       function openInlineTokenEditor(token, nodeEl) {
         const textDiv = nodeEl.querySelector('.token-text');
         if (!textDiv) return;
 
+        const calcRows = (str) => {
+          const lines = String(str || '').split('\n');
+          return Math.max(1, Math.min(12, Math.max(lines.length, Math.ceil(String(str || '').length / 24))));
+        };
+
         const input = document.createElement('textarea');
         input.value = token.text;
-        input.rows = Math.max(1, Math.min(6, Math.ceil(token.text.length / 22)));
-        input.className = 'w-full bg-transparent outline-none resize-none text-sm font-medium leading-snug text-inherit';
+        input.rows = calcRows(token.text);
+        input.className = 'w-full min-w-[160px] bg-transparent outline-none resize-none text-sm font-medium leading-snug text-inherit';
         textDiv.replaceWith(input);
         input.focus();
         input.select();
@@ -922,6 +1255,9 @@
         };
 
         input.addEventListener('pointerdown', (e) => e.stopPropagation());
+        input.addEventListener('input', () => {
+          input.rows = calcRows(input.value);
+        });
         input.addEventListener('blur', commitEdit);
         input.addEventListener('paste', async (e) => {
           const files = Array.from(e.clipboardData?.files || []);
@@ -934,7 +1270,9 @@
             const start = input.selectionStart ?? input.value.length;
             const end = input.selectionEnd ?? input.value.length;
             input.value = input.value.slice(0, start) + (start > 0 ? '\n' : '') + insertText + input.value.slice(end);
-            showToast(tr('已插入 Markdown 图片或文件链接'));
+            input.rows = calcRows(input.value);
+            const hasMdFile = files.some(f => isMarkdownFile(f));
+            showToast(hasMdFile ? tr('已粘贴并渲染 Markdown') : tr('已插入 Markdown 图片或文件链接'));
           } catch (err) {
             showToast(err.message);
           }
@@ -1254,8 +1592,8 @@
       }
 
       // 确认新建 Token
-      function commitQuickInput() {
-        const text = quickInputFieldEl.value.trim();
+      function commitQuickInput(overrideText = null) {
+        const text = (typeof overrideText === 'string' ? overrideText : quickInputFieldEl.value).trim();
         const pos = interaction.pendingCreateWorldPos;
         const parentId = interaction.pendingParentTokenId;
         closeQuickInput();
@@ -1375,6 +1713,7 @@
       }
 
       // ================= 复制 / 粘贴 / 复制副本 / 全选 =================
+      let internalClipboardText = '';
       function captureSelectionPayload() {
         const tokenIds = new Set(selection.tokens);
         const tokens = state.tokens.filter(t => tokenIds.has(t.id)).map(t => cloneState(t));
@@ -1389,6 +1728,7 @@
         const payload = captureSelectionPayload();
         if (!payload) return false;
         internalClipboard = payload;
+        internalClipboardText = payload.tokens.map(t => t.text).join('\n\n') || '__MINDFLOW_SELECTION__';
         pasteStepCount = 0;
         showToast(tr('已复制选区'));
         return true;
@@ -2552,12 +2892,16 @@
         }
 
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
-          if (copySelectedItems()) e.preventDefault();
+          setTimeout(() => {
+            if (Date.now() - lastCopyEventTime > 60) copySelectedItems();
+          }, 30);
           return;
         }
 
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
-          if (pasteClipboardItems()) e.preventDefault();
+          setTimeout(() => {
+            if (Date.now() - lastPasteEventTime > 60 && internalClipboard) pasteClipboardItems();
+          }, 30);
           return;
         }
 
@@ -2638,16 +2982,20 @@
         });
       });
 
-      // 8. 快速输入框、图片/文件粘贴与拖拽转化为 Markdown 链接
+      // 8. 快速输入框、Markdown 文本、图片与文件粘贴及拖拽自动渲染
+      let lastCopyEventTime = 0;
+      let lastPasteEventTime = 0;
+
       async function insertFilesAsMarkdown(files, worldPos = null) {
         const list = Array.from(files || []);
         if (list.length === 0) return false;
         try {
           const mdLinks = await Promise.all(list.map(f => fileToMarkdownLink(f)));
+          const hasMdFile = list.some(f => isMarkdownFile(f));
           pushHistory();
 
-          // 如果当前恰好选中了单个词块且没有显式指定拖拽落点，则追加到该选中词块中
-          if (!worldPos && selection.tokens.size === 1) {
+          // 如果当前恰好选中了单个词块且没有显式指定拖拽落点（且非独立 .md 文档），则追加到该选中词块中
+          if (!worldPos && !hasMdFile && selection.tokens.size === 1) {
             const targetId = Array.from(selection.tokens)[0];
             const targetToken = state.tokens.find(t => t.id === targetId);
             if (targetToken) {
@@ -2661,7 +3009,7 @@
             }
           }
 
-          // 否则在目标位置或视口中心创建新的 Markdown 链接词块
+          // 否则在目标位置或视口中心创建新的 Markdown 词块并自动渲染
           const baseWorld = worldPos || screenToWorld(window.innerWidth / 2 - 70, window.innerHeight / 2 - 30);
           clearSelection();
           mdLinks.forEach((md, idx) => {
@@ -2677,7 +3025,7 @@
           });
           renderAll();
           saveToLocalStorage();
-          showToast(tr('已插入 Markdown 图片或文件链接'));
+          showToast(hasMdFile ? tr('已粘贴并渲染 Markdown') : tr('已插入 Markdown 图片或文件链接'));
           return true;
         } catch (err) {
           showToast(err.message);
@@ -2685,28 +3033,107 @@
         }
       }
 
+      function pasteMarkdownTextOnCanvas(rawText) {
+        const cleaned = String(rawText || '').replace(/\r\n?/g, '\n').trim();
+        if (!cleaned) return false;
+
+        const isSingleUrl = /^https?:\/\/[^\s)]+$/i.test(cleaned);
+        const isMdLink = /^!?\[[^\]]*\]\([^)\s]+\)$/.test(cleaned);
+        const mdText = isSingleUrl
+          ? (/\.(png|jpe?g|gif|webp|svg|avif)(\?[^\s]*)?$/i.test(cleaned) ? `![image](${cleaned})` : `[${cleaned}](${cleaned})`)
+          : cleaned;
+
+        pushHistory();
+        pasteStepCount += 1;
+        const stepOffset = ((pasteStepCount - 1) % 6) * 28;
+        const center = screenToWorld(window.innerWidth / 2 - 70, window.innerHeight / 2 - 25);
+        const newToken = {
+          id: uid('tk'),
+          text: mdText,
+          x: Math.round(center.x + stepOffset),
+          y: Math.round(center.y + stepOffset),
+          color: 'neutral'
+        };
+        state.tokens.push(newToken);
+        clearSelection();
+        selection.tokens.add(newToken.id);
+        renderAll();
+        saveToLocalStorage();
+        showToast((isSingleUrl || isMdLink) ? tr('已插入 Markdown 图片或文件链接') : tr('已粘贴并渲染 Markdown'));
+        return true;
+      }
+
       quickInputFieldEl.addEventListener('paste', async (e) => {
         const files = Array.from(e.clipboardData?.files || []);
-        if (files.length === 0) return;
-        e.preventDefault();
-        e.stopPropagation();
-        try {
-          const mdLinks = await Promise.all(files.map(f => fileToMarkdownLink(f)));
-          const insertText = mdLinks.join(' ');
+        if (files.length > 0) {
+          e.preventDefault();
+          e.stopPropagation();
+          try {
+            const mdLinks = await Promise.all(files.map(f => fileToMarkdownLink(f)));
+            const hasMdFile = files.some(f => isMarkdownFile(f));
+            const insertText = mdLinks.join('\n');
+            const start = quickInputFieldEl.selectionStart ?? quickInputFieldEl.value.length;
+            const end = quickInputFieldEl.selectionEnd ?? quickInputFieldEl.value.length;
+            const combined = (quickInputFieldEl.value.slice(0, start) + insertText + quickInputFieldEl.value.slice(end)).trim();
+            if (insertText.includes('\n') && combined) {
+              commitQuickInput(combined);
+              showToast(hasMdFile ? tr('已粘贴并渲染 Markdown') : tr('已插入 Markdown 图片或文件链接'));
+            } else {
+              quickInputFieldEl.value = combined;
+              showToast(hasMdFile ? tr('已粘贴并渲染 Markdown') : tr('已插入 Markdown 图片或文件链接'));
+            }
+          } catch (err) {
+            showToast(err.message);
+          }
+          return;
+        }
+
+        const pastedText = (
+          e.clipboardData?.getData('text/markdown') ||
+          e.clipboardData?.getData('text/x-markdown') ||
+          e.clipboardData?.getData('text/plain') ||
+          ''
+        ).replace(/\r\n?/g, '\n');
+
+        if (pastedText.includes('\n')) {
+          e.preventDefault();
+          e.stopPropagation();
           const start = quickInputFieldEl.selectionStart ?? quickInputFieldEl.value.length;
           const end = quickInputFieldEl.selectionEnd ?? quickInputFieldEl.value.length;
-          quickInputFieldEl.value = quickInputFieldEl.value.slice(0, start) + insertText + quickInputFieldEl.value.slice(end);
-          showToast(tr('已插入 Markdown 图片或文件链接'));
-        } catch (err) {
-          showToast(err.message);
+          const combined = (quickInputFieldEl.value.slice(0, start) + pastedText + quickInputFieldEl.value.slice(end)).trim();
+          if (combined) {
+            commitQuickInput(combined);
+            showToast(tr('已粘贴并渲染 Markdown'));
+          }
         }
       });
 
-      // 全局粘贴图片、文件、网页 URL 或内部复制选区
+      window.addEventListener('copy', (e) => {
+        if (document.querySelector('dialog[open]') || ['modal-export', 'modal-shortcuts', 'modal-confirm', 'modal-boards'].some(id => !document.getElementById(id)?.classList.contains('hidden'))) return;
+        const active = document.activeElement;
+        if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
+
+        if (copySelectedItems()) {
+          lastCopyEventTime = Date.now();
+          e.preventDefault();
+          e.clipboardData?.setData('text/plain', internalClipboardText);
+          e.clipboardData?.setData('application/x-mindflow-clipboard', '1');
+        }
+      });
+
+      // 全局粘贴 Markdown 文本、.md 文件、图片、附件、网页 URL 或内部复制选区并自动渲染
       window.addEventListener('paste', async (e) => {
         if (document.querySelector('dialog[open]') || ['modal-export', 'modal-shortcuts', 'modal-confirm', 'modal-boards'].some(id => !document.getElementById(id)?.classList.contains('hidden'))) return;
         const active = document.activeElement;
         if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
+
+        lastPasteEventTime = Date.now();
+
+        if (e.clipboardData?.getData('application/x-mindflow-clipboard') === '1' && internalClipboard) {
+          e.preventDefault();
+          pasteClipboardItems();
+          return;
+        }
 
         const files = Array.from(e.clipboardData?.files || []);
         if (files.length > 0) {
@@ -2715,34 +3142,22 @@
           return;
         }
 
-        const plain = (e.clipboardData?.getData('text/plain') || '').trim();
+        const rawPlain = (
+          e.clipboardData?.getData('text/markdown') ||
+          e.clipboardData?.getData('text/x-markdown') ||
+          e.clipboardData?.getData('text/plain') ||
+          ''
+        );
+        const plain = rawPlain.replace(/\r\n?/g, '\n').trim();
         if (plain) {
-          const isSingleUrl = /^https?:\/\/[^\s)]+$/i.test(plain);
-          const isMdLink = /^!?\[[^\]]*\]\([^)\s]+\)$/.test(plain);
-          if (isSingleUrl || isMdLink) {
+          if (internalClipboard && internalClipboardText && plain === internalClipboardText.trim()) {
             e.preventDefault();
-            const mdText = isMdLink
-              ? plain
-              : (/\.(png|jpe?g|gif|webp|svg)(\?[^\s]*)?$/i.test(plain) ? `![image](${plain})` : `[${plain}](${plain})`);
-            pushHistory();
-            if (selection.tokens.size === 1) {
-              const targetId = Array.from(selection.tokens)[0];
-              const targetToken = state.tokens.find(t => t.id === targetId);
-              if (targetToken) {
-                targetToken.text = `${targetToken.text}\n${mdText}`;
-              }
-            } else {
-              const center = screenToWorld(window.innerWidth / 2 - 70, window.innerHeight / 2 - 25);
-              const newToken = { id: uid('tk'), text: mdText, x: Math.round(center.x), y: Math.round(center.y), color: 'neutral' };
-              state.tokens.push(newToken);
-              clearSelection();
-              selection.tokens.add(newToken.id);
-            }
-            renderAll();
-            saveToLocalStorage();
-            showToast(tr('已插入 Markdown 图片或文件链接'));
+            pasteClipboardItems();
             return;
           }
+          e.preventDefault();
+          pasteMarkdownTextOnCanvas(plain);
+          return;
         }
 
         if (internalClipboard) {

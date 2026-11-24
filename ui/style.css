@@ -295,8 +295,39 @@
 #mcp-dialog label{font-size:13px}#mcp-config{width:100%;height:230px;margin:16px 0;padding:14px;border:1px solid #d6d3d1;border-radius:10px;font:12px/1.6 monospace;background:white;color:#292524;resize:vertical}
 .mcp-actions{justify-content:flex-start}.mcp-actions button,.mcp-actions select{padding:9px 14px;border-radius:8px;border:1px solid #d6d3d1;font-size:13px}.mcp-actions button:first-of-type{background:#1d4ed8;color:white;border-color:#1d4ed8}
 #mcp-dialog hr{margin:22px 0;border-color:#e7e5e4}#mcp-dialog h3{font-weight:500;font-size:15px}.dark #mcp-dialog{background:#202024;color:#fafafa}.dark .mcp-path{background:#34343b}.dark #mcp-dialog p{color:#a1a1aa}
-/* Keep short Chinese labels on one line; long cards still wrap at 280px. */
+/* Keep short Chinese labels on one line; long cards still wrap at 280px (or 340px for structured Markdown). */
 .token-node{width:max-content}
+.token-node.token-node-md{max-width:340px}
+.token-text.token-md-blocks{white-space:normal;display:flex;flex-direction:column;gap:4px}
+.token-md-heading{font-weight:700;line-height:1.3;margin:1px 0}
+.token-md-h1{font-size:1.15em;border-bottom:1px solid rgba(120,113,108,0.25);padding-bottom:3px}
+.token-md-h2{font-size:1.08em}
+.token-md-h3{font-size:1.02em}
+.token-md-h4,.token-md-h5,.token-md-h6{font-size:0.96em;opacity:0.92}
+.token-md-p{margin:0;line-height:1.45;white-space:pre-wrap;word-break:break-word}
+.token-md-strong{font-weight:700}
+.token-md-em{font-style:italic}
+.token-md-del{text-decoration:line-through;opacity:0.72}
+.token-md-mark{background:rgba(250,204,21,0.38);color:inherit;padding:0 3px;border-radius:4px}
+.token-md-inline-code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:0.88em;padding:1px 5px;border-radius:5px;background:rgba(0,0,0,0.07)}
+.dark .token-md-inline-code{background:rgba(255,255,255,0.13)}
+.token-md-code-wrap{margin:2px 0;border-radius:8px;overflow:hidden;background:rgba(0,0,0,0.06);border:1px solid rgba(0,0,0,0.08)}
+.dark .token-md-code-wrap{background:rgba(0,0,0,0.32);border-color:rgba(255,255,255,0.1)}
+.token-md-code-lang{font-size:10px;font-family:ui-monospace,monospace;text-transform:uppercase;letter-spacing:0.04em;opacity:0.65;padding:3px 8px 0 8px}
+.token-md-pre{margin:0;padding:6px 8px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;line-height:1.45;white-space:pre-wrap;word-break:break-all;overflow-x:auto}
+.token-md-quote{margin:2px 0;padding:2px 0 2px 9px;border-left:3px solid currentColor;opacity:0.85;font-size:0.95em;white-space:pre-wrap}
+.token-md-list{margin:2px 0;padding-left:18px;list-style-type:disc}
+.token-md-olist{margin:2px 0;padding-left:18px;list-style-type:decimal}
+.token-md-li{margin:1.5px 0;line-height:1.4;word-break:break-word}
+.token-md-task-li{display:flex;align-items:flex-start;gap:6px;list-style:none;margin-left:-15px}
+.token-md-checkbox{pointer-events:auto;margin-top:3px;width:13px;height:13px;accent-color:#3b82f6;cursor:pointer;flex-shrink:0}
+.token-md-task-done{text-decoration:line-through;opacity:0.65}
+.token-md-table-wrap{margin:2px 0;overflow-x:auto;max-width:100%}
+.token-md-table{border-collapse:collapse;width:100%;font-size:12px}
+.token-md-table th,.token-md-table td{border:1px solid rgba(120,113,108,0.28);padding:3px 6px}
+.token-md-table th{background:rgba(0,0,0,0.05);font-weight:600}
+.dark .token-md-table th{background:rgba(255,255,255,0.07)}
+.token-md-hr{border:0;border-top:1px solid rgba(120,113,108,0.28);margin:4px 0;width:100%}
 .token-md-img{display:block;max-width:248px;max-height:180px;width:auto;height:auto;border-radius:10px;margin:4px 0;object-fit:contain;background:rgba(0,0,0,0.03)}
 .token-md-caption{display:block;font-size:11px;opacity:0.75;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:248px}
 .token-md-link{pointer-events:auto;display:inline-flex;align-items:center;gap:4px;padding:2px 8px;margin:2px 0;border-radius:8px;background:rgba(59,130,246,0.12);color:#2563eb;text-decoration:underline;font-size:12px;max-width:248px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

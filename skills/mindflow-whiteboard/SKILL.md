@@ -41,8 +41,8 @@ MindFlow uses an infinite 2D world coordinate canvas centered around `(0, 0)`:
 - **Explicit connections (`edges`)**:
   - Always connect cause-and-effect, hierarchy, or flow using explicit `edges` (`{ id, source, target, label }`).
   - Keep `edge.label` concise (`2–6` Chinese characters or `1–3` English words, e.g. `"催生需求"`, `"AI 处理"`, `"依赖"`, `"leads to"`, `"blocks"`).
-- **Markdown Image & File Links in Cards (`token.text`)**:
-  - Card text natively supports Markdown images `![alt](data:image/...)` and file/web links `[filename](url)`. Images render inline previews inside the card, and file/web links render as clickable download/open pills.
+- **Full Markdown Automatic Rendering in Cards (`token.text`)**:
+  - Card text natively renders full Markdown syntax—including `#` headings, `**bold**`, `*italic*`, `~~strikethrough~~`, `` `inline code` ``, fenced code blocks (` ``` `), unordered/ordered lists, interactive task checkboxes (`- [ ]` / `- [x]`), `>` blockquotes, GFM pipe tables, images `![alt](url)`, and file/web links `[filename](url)`. Double-clicking a card edits the raw Markdown source and automatically re-renders on commit.
 
 ---
 

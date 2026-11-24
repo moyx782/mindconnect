@@ -201,7 +201,8 @@
     "单个附件请勿超过 4 MiB": "Attachment exceeds 4 MiB limit",
     "点击下载或打开附件": "Click to download or open attachment",
     "粘贴图片": "Pasted image",
-    "附件": "Attachment"
+    "附件": "Attachment",
+    "已粘贴并渲染 Markdown": "Pasted and rendered Markdown"
 };
   let language = localStorage.getItem('mindflow-language') ||
     (navigator.language.toLowerCase().startsWith('zh') ? 'zh' : 'en');

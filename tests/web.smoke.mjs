@@ -96,10 +96,47 @@ try{
  assert.ok(mdExport.includes('[spec.txt](data:text/plain;base64,'));
  await page.locator('#btn-close-export').click();
 
+ // Test pasting full Markdown text onto canvas and automatic Markdown rendering
+ await page.evaluate(() => {
+  const mdSample = [
+   '# 产品路线图',
+   '> 核心围绕 **自由白板** 与 *AI 协同*',
+   '- [ ] 完成 `Markdown` 自动渲染',
+   '- [x] 支持代码块与表格',
+   '```js',
+   'const ready = true;',
+   '```',
+   '| 模块 | 状态 |',
+   '| --- | --- |',
+   '| 渲染 | 已完成 |'
+  ].join('\n');
+  const dt = new DataTransfer();
+  dt.setData('text/plain', mdSample);
+  window.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+ });
+ await page.waitForFunction(() => document.querySelectorAll('.token-node').length === 3);
+ assert.equal(await page.locator('.token-node .token-md-h1').textContent(), '产品路线图');
+ assert.equal(await page.locator('.token-node .token-md-strong').first().textContent(), '自由白板');
+ assert.equal(await page.locator('.token-node .token-md-em').first().textContent(), 'AI 协同');
+ assert.equal(await page.locator('.token-node .token-md-inline-code').textContent(), 'Markdown');
+ assert.equal(await page.locator('.token-node .token-md-pre').textContent(), 'const ready = true;');
+ assert.equal(await page.locator('.token-node .token-md-table tbody td').first().textContent(), '渲染');
+ assert.equal(await page.locator('.token-node input.token-md-checkbox').count(), 2);
+ // Toggle interactive task checkbox inside rendered Markdown card
+ await page.locator('.token-node input.token-md-checkbox').first().click();
+ assert.equal(await page.locator('.token-node .token-md-task-done').count(), 2);
+
+ // Test attaching/dropping a .md file directly renders its Markdown content
+ await page.locator('#input-attach-file').setInputFiles([
+  { name: 'note.md', mimeType: 'text/markdown', buffer: Buffer.from('## 粘贴文档\n- **自动解析** `.md` 文件') }
+ ]);
+ await page.waitForFunction(() => document.querySelectorAll('.token-node').length === 4);
+ assert.equal(await page.locator('.token-node .token-md-h2').textContent(), '粘贴文档');
+
  await page.setViewportSize({width:390,height:844});await page.locator('#btn-mcp').click();assert.ok(await page.locator('#mcp-dialog').isVisible());
  const bounds=await page.locator('#mcp-dialog').boundingBox();assert.ok(bounds.x>=0&&bounds.x+bounds.width<=391);
  const skillDl=page.waitForEvent('download');await page.locator('#btn-download-skill').click();const skillFile=await (await skillDl).path();const skillText=await fs.readFile(skillFile,'utf8');assert.ok(skillText.includes('name: mindflow-whiteboard'));
- assert.deepEqual(errors,[]);console.log('Web smoke PASS: load, edit, persistence, selected JSON, full JSON, legacy import, invalid input, two-tab sync, pen+eraser, search, duplicate, SVG export, multi-board, Markdown image/file paste, built-in AI skill, mobile dialog, CSP');
+ assert.deepEqual(errors,[]);console.log('Web smoke PASS: load, edit, persistence, selected JSON, full JSON, legacy import, invalid input, two-tab sync, pen+eraser, search, duplicate, SVG export, multi-board, Markdown paste & auto-render, built-in AI skill, mobile dialog, CSP');
 }finally{await browser.close();server.close();}
 
 
