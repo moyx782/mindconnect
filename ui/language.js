@@ -194,7 +194,14 @@
     "复制 AI 技能与上下文": "Copy AI skill + context",
     "下载 SKILL.md": "Download SKILL.md",
     "已复制 AI 技能与白板上下文": "Copied AI skill and board context",
-    "已导出 SKILL.md": "Exported SKILL.md"
+    "已导出 SKILL.md": "Exported SKILL.md",
+    "插入或上传图片/文件为 Markdown 链接 (也可直接粘贴或拖入画布)": "Attach image or file as Markdown link (or paste / drop onto canvas)",
+    "图片/文件": "Media/File",
+    "已插入 Markdown 图片或文件链接": "Inserted Markdown image/file link",
+    "单个附件请勿超过 4 MiB": "Attachment exceeds 4 MiB limit",
+    "点击下载或打开附件": "Click to download or open attachment",
+    "粘贴图片": "Pasted image",
+    "附件": "Attachment"
 };
   let language = localStorage.getItem('mindflow-language') ||
     (navigator.language.toLowerCase().startsWith('zh') ? 'zh' : 'en');

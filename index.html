@@ -170,6 +170,12 @@
         <span>+ 分支</span>
       </button>
 
+      <label id="btn-toolbar-attach" title="插入或上传图片/文件为 Markdown 链接 (也可直接粘贴或拖入画布)" class="cursor-pointer flex items-center gap-1 px-2 py-1 rounded-xl text-xs font-medium text-stone-700 dark:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
+        <span>图片/文件</span>
+        <input id="input-attach-file" type="file" multiple class="hidden" />
+      </label>
+
       <button id="btn-toolbar-duplicate" title="复制副本 (Ctrl/Cmd + D)" class="flex items-center gap-1 px-2 py-1 rounded-xl text-xs font-medium text-stone-700 dark:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-800 transition">
         <span>副本</span>
       </button>

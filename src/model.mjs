@@ -80,6 +80,7 @@ export function getSkillGuide(lang='zh') {
 2. Spatial Layout & Coordinates:
    - Infinite 2D canvas around (0, 0). Card size ~160x44px.
    - Keep horizontal column spacing dx >= 240px and vertical sibling spacing dy >= 76px to avoid overlap.
+   - Cards support Markdown image syntax ![alt](data:image/...) and file/web link syntax [name](url).
    - A card (x, y) is inside a group (cluster) when (x+60, y+20) falls within [cluster.x..cluster.x+width, cluster.y..cluster.y+height].
    - Leave padding when wrapping cards in a cluster: x = minX - 32, y = minY - 52, width >= (maxX - minX) + 200, height >= (maxY - minY) + 110.
 3. MCP & JSON Workflow:
@@ -95,7 +96,7 @@ export function getSkillGuide(lang='zh') {
    - red (质疑红): 风险点、阻塞项或待验证假设
    - neutral (中性白/灰): 补充说明或背景记录
 2. 空间坐标与防重叠排版:
-   - 画布以 (0, 0) 为中心，单个词块约 160x44px。
+   - 画布以 (0, 0) 为中心，单个词块约 160x44px；词块文本原生支持 Markdown 图片语法 ![名称](data:image/...) 与文件/网页链接语法 [文件名](url)。
    - 左右分支列间距建议 dx >= 240px，上下同级词块间距建议 dy >= 76px，避免卡片重叠。
    - 空间群组 (cluster) 归属判定：词块中心 (t.x + 60, t.y + 20) 落在群组矩形内即视为归属该群组。包裹词块时建议预留内边距：x = minX - 32, y = minY - 52, width >= (maxX - minX) + 200, height >= (maxY - minY) + 110。
    - 显式关系请始终创建连线 (edges: { id, source, target, label })，label 保持 2-6 字精炼关系动词。
@@ -103,4 +104,5 @@ export function getSkillGuide(lang='zh') {
    - 本地 MCP 模式：先调用 mindflow_get_context 或 mindflow_get_board 获取当前 revision，再调用 mindflow_apply_operations 传入 expectedRevision 批量原子写入。
    - 网页 JSON 导入模式：直接输出包含 { "title", "tokens", "edges", "clusters", "drawings" } 且 ID 唯一（仅含字母/数字/下划线/短横线）的 JSON，用户可直接点击白板顶栏「导入」一键生成白板。`;
 }
+
 

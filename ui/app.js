@@ -700,6 +700,92 @@
         });
       }
 
+      // 安全校验允许渲染的链接协议（支持 https/http/mailto 以及安全的 data: 附件或图片）
+      function isSafeMarkdownUrl(url) {
+        if (!url || typeof url !== 'string') return false;
+        const trimmed = url.trim();
+        return /^(https?:\/\/|mailto:|data:[a-zA-Z0-9.+/-]+;base64,)/i.test(trimmed);
+      }
+
+      // 将 File 对象转换为 Markdown 链接语法：图片转为 ![name](data:image/...)，文件转为 [name](data:...)
+      const MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024;
+      function fileToMarkdownLink(file) {
+        return new Promise((resolve, reject) => {
+          if (file.size > MAX_ATTACHMENT_BYTES) {
+            reject(new Error(tr('单个附件请勿超过 4 MiB')));
+            return;
+          }
+          const reader = new FileReader();
+          reader.onload = () => {
+            const dataUrl = String(reader.result || '');
+            const isImg = (file.type && file.type.startsWith('image/')) || /^data:image\//i.test(dataUrl);
+            const rawName = (file.name || (isImg ? `${tr('粘贴图片')}.png` : `${tr('附件')}.bin`)).replace(/[\[\]()]/g, '_');
+            resolve(isImg ? `![${rawName}](${dataUrl})` : `[${rawName}](${dataUrl})`);
+          };
+          reader.onerror = () => reject(new Error('Failed to read file'));
+          reader.readAsDataURL(file);
+        });
+      }
+
+      // 解析词块文本中的 Markdown 图片 ![alt](url) 与文件/网页链接 [label](url) 并构建安全 DOM
+      function renderTokenMarkdownContent(container, text) {
+        container.innerHTML = '';
+        const raw = String(text || '');
+        const mdRegex = /(!?)\[([^\]]*)\]\(([^)\s]+)\)/g;
+        let lastIndex = 0;
+        let match;
+
+        while ((match = mdRegex.exec(raw)) !== null) {
+          if (match.index > lastIndex) {
+            container.appendChild(document.createTextNode(raw.slice(lastIndex, match.index)));
+          }
+          const isImage = match[1] === '!';
+          const label = match[2] || (isImage ? tr('粘贴图片') : tr('附件'));
+          const url = match[3];
+
+          if (isImage && /^data:image\//i.test(url)) {
+            const wrap = document.createElement('div');
+            wrap.className = 'my-1';
+            const img = document.createElement('img');
+            img.src = url;
+            img.alt = label;
+            img.className = 'token-md-img';
+            img.addEventListener('load', () => renderEdges());
+            wrap.appendChild(img);
+            if (label) {
+              const cap = document.createElement('span');
+              cap.className = 'token-md-caption';
+              cap.textContent = label;
+              wrap.appendChild(cap);
+            }
+            container.appendChild(wrap);
+          } else if (isSafeMarkdownUrl(url)) {
+            const a = document.createElement('a');
+            a.href = url;
+            a.className = 'token-md-link';
+            a.title = `${label} (${tr('点击下载或打开附件')})`;
+            if (url.startsWith('data:')) {
+              a.download = label;
+            } else {
+              a.target = '_blank';
+              a.rel = 'noopener noreferrer';
+            }
+            a.textContent = `📎 ${label}`;
+            a.addEventListener('pointerdown', (e) => e.stopPropagation());
+            a.addEventListener('click', (e) => e.stopPropagation());
+            container.appendChild(a);
+          } else {
+            container.appendChild(document.createTextNode(match[0]));
+          }
+
+          lastIndex = mdRegex.lastIndex;
+        }
+
+        if (lastIndex < raw.length) {
+          container.appendChild(document.createTextNode(raw.slice(lastIndex)));
+        }
+      }
+
       // 渲染词条卡片 (Tokens)
       function renderTokens() {
         tokensLayerEl.innerHTML = '';
@@ -713,8 +799,8 @@
           el.style.top = `${token.y}px`;
 
           const textSpan = document.createElement('div');
-          textSpan.className = 'token-text pointer-events-none';
-          textSpan.textContent = token.text;
+          textSpan.className = 'token-text pointer-events-none whitespace-pre-wrap';
+          renderTokenMarkdownContent(textSpan, token.text);
           el.appendChild(textSpan);
 
           // 右侧快捷发散按钮 (+)
@@ -815,7 +901,7 @@
 
         const input = document.createElement('textarea');
         input.value = token.text;
-        input.rows = Math.max(1, Math.ceil(token.text.length / 14));
+        input.rows = Math.max(1, Math.min(6, Math.ceil(token.text.length / 22)));
         input.className = 'w-full bg-transparent outline-none resize-none text-sm font-medium leading-snug text-inherit';
         textDiv.replaceWith(input);
         input.focus();
@@ -837,6 +923,22 @@
 
         input.addEventListener('pointerdown', (e) => e.stopPropagation());
         input.addEventListener('blur', commitEdit);
+        input.addEventListener('paste', async (e) => {
+          const files = Array.from(e.clipboardData?.files || []);
+          if (files.length === 0) return;
+          e.preventDefault();
+          e.stopPropagation();
+          try {
+            const mdLinks = await Promise.all(files.map(f => fileToMarkdownLink(f)));
+            const insertText = mdLinks.join('\n');
+            const start = input.selectionStart ?? input.value.length;
+            const end = input.selectionEnd ?? input.value.length;
+            input.value = input.value.slice(0, start) + (start > 0 ? '\n' : '') + insertText + input.value.slice(end);
+            showToast(tr('已插入 Markdown 图片或文件链接'));
+          } catch (err) {
+            showToast(err.message);
+          }
+        });
         input.addEventListener('keydown', (e) => {
           if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
@@ -2536,7 +2638,141 @@
         });
       });
 
-      // 8. 快速输入框与悬浮工具栏交互
+      // 8. 快速输入框、图片/文件粘贴与拖拽转化为 Markdown 链接
+      async function insertFilesAsMarkdown(files, worldPos = null) {
+        const list = Array.from(files || []);
+        if (list.length === 0) return false;
+        try {
+          const mdLinks = await Promise.all(list.map(f => fileToMarkdownLink(f)));
+          pushHistory();
+
+          // 如果当前恰好选中了单个词块且没有显式指定拖拽落点，则追加到该选中词块中
+          if (!worldPos && selection.tokens.size === 1) {
+            const targetId = Array.from(selection.tokens)[0];
+            const targetToken = state.tokens.find(t => t.id === targetId);
+            if (targetToken) {
+              targetToken.text = targetToken.text
+                ? `${targetToken.text}\n${mdLinks.join('\n')}`
+                : mdLinks.join('\n');
+              renderAll();
+              saveToLocalStorage();
+              showToast(tr('已插入 Markdown 图片或文件链接'));
+              return true;
+            }
+          }
+
+          // 否则在目标位置或视口中心创建新的 Markdown 链接词块
+          const baseWorld = worldPos || screenToWorld(window.innerWidth / 2 - 70, window.innerHeight / 2 - 30);
+          clearSelection();
+          mdLinks.forEach((md, idx) => {
+            const newToken = {
+              id: uid('tk'),
+              text: md,
+              x: Math.round(baseWorld.x + idx * 32),
+              y: Math.round(baseWorld.y + idx * 32),
+              color: 'neutral'
+            };
+            state.tokens.push(newToken);
+            selection.tokens.add(newToken.id);
+          });
+          renderAll();
+          saveToLocalStorage();
+          showToast(tr('已插入 Markdown 图片或文件链接'));
+          return true;
+        } catch (err) {
+          showToast(err.message);
+          return false;
+        }
+      }
+
+      quickInputFieldEl.addEventListener('paste', async (e) => {
+        const files = Array.from(e.clipboardData?.files || []);
+        if (files.length === 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        try {
+          const mdLinks = await Promise.all(files.map(f => fileToMarkdownLink(f)));
+          const insertText = mdLinks.join(' ');
+          const start = quickInputFieldEl.selectionStart ?? quickInputFieldEl.value.length;
+          const end = quickInputFieldEl.selectionEnd ?? quickInputFieldEl.value.length;
+          quickInputFieldEl.value = quickInputFieldEl.value.slice(0, start) + insertText + quickInputFieldEl.value.slice(end);
+          showToast(tr('已插入 Markdown 图片或文件链接'));
+        } catch (err) {
+          showToast(err.message);
+        }
+      });
+
+      // 全局粘贴图片、文件、网页 URL 或内部复制选区
+      window.addEventListener('paste', async (e) => {
+        if (document.querySelector('dialog[open]') || ['modal-export', 'modal-shortcuts', 'modal-confirm', 'modal-boards'].some(id => !document.getElementById(id)?.classList.contains('hidden'))) return;
+        const active = document.activeElement;
+        if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
+
+        const files = Array.from(e.clipboardData?.files || []);
+        if (files.length > 0) {
+          e.preventDefault();
+          await insertFilesAsMarkdown(files);
+          return;
+        }
+
+        const plain = (e.clipboardData?.getData('text/plain') || '').trim();
+        if (plain) {
+          const isSingleUrl = /^https?:\/\/[^\s)]+$/i.test(plain);
+          const isMdLink = /^!?\[[^\]]*\]\([^)\s]+\)$/.test(plain);
+          if (isSingleUrl || isMdLink) {
+            e.preventDefault();
+            const mdText = isMdLink
+              ? plain
+              : (/\.(png|jpe?g|gif|webp|svg)(\?[^\s]*)?$/i.test(plain) ? `![image](${plain})` : `[${plain}](${plain})`);
+            pushHistory();
+            if (selection.tokens.size === 1) {
+              const targetId = Array.from(selection.tokens)[0];
+              const targetToken = state.tokens.find(t => t.id === targetId);
+              if (targetToken) {
+                targetToken.text = `${targetToken.text}\n${mdText}`;
+              }
+            } else {
+              const center = screenToWorld(window.innerWidth / 2 - 70, window.innerHeight / 2 - 25);
+              const newToken = { id: uid('tk'), text: mdText, x: Math.round(center.x), y: Math.round(center.y), color: 'neutral' };
+              state.tokens.push(newToken);
+              clearSelection();
+              selection.tokens.add(newToken.id);
+            }
+            renderAll();
+            saveToLocalStorage();
+            showToast(tr('已插入 Markdown 图片或文件链接'));
+            return;
+          }
+        }
+
+        if (internalClipboard) {
+          e.preventDefault();
+          pasteClipboardItems();
+        }
+      });
+
+      // 支持从桌面拖拽图片或文件到白板画布，自动在落点生成 Markdown 链接词块
+      viewportEl.addEventListener('dragover', (e) => {
+        if (e.dataTransfer?.types?.includes('Files')) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+        }
+      });
+      viewportEl.addEventListener('drop', async (e) => {
+        const files = Array.from(e.dataTransfer?.files || []);
+        if (files.length === 0) return;
+        e.preventDefault();
+        const dropWorld = screenToWorld(e.clientX - 60, e.clientY - 24);
+        await insertFilesAsMarkdown(files, dropWorld);
+      });
+
+      document.getElementById('input-attach-file')?.addEventListener('change', async (e) => {
+        const files = Array.from(e.target.files || []);
+        e.target.value = '';
+        if (files.length === 0) return;
+        await insertFilesAsMarkdown(files);
+      });
+
       quickInputFieldEl.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
           e.preventDefault();

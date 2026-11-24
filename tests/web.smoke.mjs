@@ -81,11 +81,26 @@ try{
  await page.locator('#btn-boards-modal').click();
  await page.waitForFunction(()=>document.querySelectorAll('#boards-list-container > div').length===2);
  await page.locator('#btn-close-boards').click();
+ // Test pasting/attaching images and files as Markdown links
+ const onePxPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+ await page.locator('#input-attach-file').setInputFiles([
+  { name: 'diagram.png', mimeType: 'image/png', buffer: onePxPng },
+  { name: 'spec.txt', mimeType: 'text/plain', buffer: Buffer.from('MindFlow specification') }
+ ]);
+ await page.waitForFunction(() => document.querySelectorAll('.token-node').length === 2);
+ assert.equal(await page.locator('.token-node img.token-md-img').count(), 1);
+ assert.equal(await page.locator('.token-node a.token-md-link').count(), 1);
+ await page.locator('#btn-export-modal').click();
+ const mdExport = await page.locator('#export-preview-area').inputValue();
+ assert.ok(mdExport.includes('![diagram.png](data:image/png;base64,'));
+ assert.ok(mdExport.includes('[spec.txt](data:text/plain;base64,'));
+ await page.locator('#btn-close-export').click();
 
  await page.setViewportSize({width:390,height:844});await page.locator('#btn-mcp').click();assert.ok(await page.locator('#mcp-dialog').isVisible());
  const bounds=await page.locator('#mcp-dialog').boundingBox();assert.ok(bounds.x>=0&&bounds.x+bounds.width<=391);
  const skillDl=page.waitForEvent('download');await page.locator('#btn-download-skill').click();const skillFile=await (await skillDl).path();const skillText=await fs.readFile(skillFile,'utf8');assert.ok(skillText.includes('name: mindflow-whiteboard'));
- assert.deepEqual(errors,[]);console.log('Web smoke PASS: load, edit, persistence, selected JSON, full JSON, legacy import, invalid input, two-tab sync, pen+eraser, search, duplicate, SVG export, multi-board, built-in AI skill, mobile dialog, CSP');
+ assert.deepEqual(errors,[]);console.log('Web smoke PASS: load, edit, persistence, selected JSON, full JSON, legacy import, invalid input, two-tab sync, pen+eraser, search, duplicate, SVG export, multi-board, Markdown image/file paste, built-in AI skill, mobile dialog, CSP');
 }finally{await browser.close();server.close();}
+
 
 
